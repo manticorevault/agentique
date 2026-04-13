@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { randomUUID } from "../utils/uuid.js";
 import type { Agent, AgentStep, SkillSearchResult } from "@skillrunner/shared";
-import { SUPPORTED_MODELS, DEFAULT_MODEL } from "@skillrunner/shared";
+import { DEFAULT_MODEL } from "@skillrunner/shared";
+import { useModels } from "../hooks/useModels.js";
 import { createAgent, updateAgent } from "../api/agents.js";
 import { SkillBrowser } from "./SkillBrowser.js";
 
@@ -34,6 +35,16 @@ export function AgentBuilder({ existing, onSaved, onCancel }: Props) {
   const [pickerForStep, setPickerForStep] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const { grouped, defaultModel, loading: modelsLoading } = useModels();
+
+  // Once models load, if we're on the hardcoded default and the live list has
+  // something to offer, sync to the resolved default.
+  useEffect(() => {
+    if (!existing && !modelsLoading && model === DEFAULT_MODEL && defaultModel) {
+      setModel(defaultModel);
+    }
+  }, [modelsLoading, defaultModel, existing, model]);
 
   function updateStep(index: number, patch: Partial<AgentStep>) {
     setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
@@ -92,6 +103,47 @@ export function AgentBuilder({ existing, onSaved, onCancel }: Props) {
     }
   }
 
+  /** Render a model <select> grouped by provider via <optgroup> */
+  function ModelSelect({
+    id,
+    value,
+    onChange,
+    placeholder,
+  }: {
+    id?: string;
+    value: string;
+    onChange: (v: string) => void;
+    placeholder?: string;
+  }) {
+    return (
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={modelsLoading}>
+        {placeholder && <option value="">{placeholder}</option>}
+        {modelsLoading ? (
+          <option value="">Loading models…</option>
+        ) : (
+          grouped.map(({ provider, models }) => (
+            <optgroup key={provider} label={provider}>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}{m.note ? ` — ${m.note}` : ""}
+                </option>
+              ))}
+            </optgroup>
+          ))
+        )}
+      </select>
+    );
+  }
+
+  /** Look up display name for a model ID */
+  function modelLabel(id: string): string {
+    for (const { models } of grouped) {
+      const found = models.find((m) => m.id === id);
+      if (found) return found.name;
+    }
+    return id;
+  }
+
   return (
     <div className="agent-builder">
       <div className="agent-builder-header">
@@ -118,15 +170,7 @@ export function AgentBuilder({ existing, onSaved, onCancel }: Props) {
 
       <div className="model-selector" style={{ marginBottom: "1.5rem" }}>
         <label htmlFor="agent-model">Default model</label>
-        <select
-          id="agent-model"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-        >
-          {SUPPORTED_MODELS.map((m) => (
-            <option key={m.id} value={m.id}>{m.label} — {m.note}</option>
-          ))}
-        </select>
+        <ModelSelect id="agent-model" value={model} onChange={setModel} />
       </div>
 
       <h3 className="steps-heading">Steps</h3>
@@ -196,16 +240,11 @@ export function AgentBuilder({ existing, onSaved, onCancel }: Props) {
                 )}
 
                 <div className="agent-step-model">
-                  <select
+                  <ModelSelect
                     value={step.model ?? ""}
-                    onChange={(e) => updateStep(i, { model: e.target.value || undefined })}
-                    title="Model for this step (leave as Default to inherit the agent model)"
-                  >
-                    <option value="">Default ({SUPPORTED_MODELS.find((m) => m.id === model)?.label ?? model})</option>
-                    {SUPPORTED_MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>{m.label} — {m.note}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => updateStep(i, { model: v || undefined })}
+                    placeholder={`Default (${modelLabel(model)})`}
+                  />
                 </div>
               </div>
 
@@ -226,7 +265,7 @@ export function AgentBuilder({ existing, onSaved, onCancel }: Props) {
 
       <div className="agent-builder-actions">
         <button className="btn-secondary" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button onClick={() => void handleSave()} disabled={saving}>
+        <button onClick={() => void handleSave()} disabled={saving || modelsLoading}>
           {saving ? "Saving…" : existing ? "Save changes" : "Create agent"}
         </button>
       </div>

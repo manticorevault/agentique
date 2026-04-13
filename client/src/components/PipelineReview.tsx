@@ -1,6 +1,6 @@
 import type { Pipeline } from "@skillrunner/shared";
-import { SUPPORTED_MODELS } from "@skillrunner/shared";
 import { useFadeInList } from "../hooks/useFadeInList.js";
+import { useModels } from "../hooks/useModels.js";
 
 interface Props {
   pipeline: Pipeline;
@@ -20,6 +20,8 @@ export function PipelineReview({
   loading,
 }: Props) {
   const stepsRef = useFadeInList<HTMLOListElement>(80);
+  const { grouped, loading: modelsLoading } = useModels();
+
   return (
     <div className="pipeline-review">
       <h2>Proposed pipeline</h2>
@@ -56,13 +58,21 @@ export function PipelineReview({
           id="model-select"
           value={selectedModel}
           onChange={(e) => onModelChange(e.target.value)}
-          disabled={loading}
+          disabled={loading || modelsLoading}
         >
-          {SUPPORTED_MODELS.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label} — {m.note}
-            </option>
-          ))}
+          {modelsLoading ? (
+            <option value="">Loading models…</option>
+          ) : (
+            grouped.map(({ provider, models }) => (
+              <optgroup key={provider} label={provider}>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}{m.note ? ` — ${m.note}` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))
+          )}
         </select>
       </div>
 
@@ -70,7 +80,7 @@ export function PipelineReview({
         <button className="btn-secondary" onClick={onBack} disabled={loading}>
           Back
         </button>
-        <button onClick={onConfirm} disabled={loading}>
+        <button onClick={onConfirm} disabled={loading || modelsLoading}>
           {loading ? "Starting…" : "Run pipeline"}
         </button>
       </div>

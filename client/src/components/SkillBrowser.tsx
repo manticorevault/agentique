@@ -1,6 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { SkillSearchResult } from "@skillrunner/shared";
-import { searchSkills } from "../api/agents.js";
+import { searchSkills, fetchFeaturedSkills } from "../api/agents.js";
 import { useFadeInList } from "../hooks/useFadeInList.js";
 
 interface Props {
@@ -11,11 +11,20 @@ interface Props {
 export function SkillBrowser({ onSelect }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SkillSearchResult[]>([]);
+  const [featured, setFeatured] = useState<SkillSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [featuredLoading, setFeaturedLoading] = useState(true);
   const [error, setError] = useState("");
   const [searched, setSearched] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resultsRef = useFadeInList<HTMLUListElement>(40);
+
+  useEffect(() => {
+    fetchFeaturedSkills()
+      .then((data) => setFeatured(data.results))
+      .catch(() => {/* silently ignore — featured is best-effort */})
+      .finally(() => setFeaturedLoading(false));
+  }, []);
 
   function handleChange(value: string) {
     setQuery(value);
@@ -38,6 +47,9 @@ export function SkillBrowser({ onSelect }: Props) {
     }
   }
 
+  const showFeatured = !query.trim() && !searched;
+  const displayList = showFeatured ? featured : results;
+
   return (
     <div className="skill-browser">
       <div className="skill-search-bar">
@@ -49,7 +61,11 @@ export function SkillBrowser({ onSelect }: Props) {
           onChange={(e) => handleChange(e.target.value)}
           autoFocus
         />
-        {loading && <span className="skill-search-spinner">Searching…</span>}
+        {(loading || (showFeatured && featuredLoading)) && (
+          <span className="skill-search-spinner">
+            {showFeatured ? "Loading…" : "Searching…"}
+          </span>
+        )}
       </div>
 
       {error && <p className="sidebar-note" style={{ color: "var(--color-error)" }}>{error}</p>}
@@ -58,8 +74,14 @@ export function SkillBrowser({ onSelect }: Props) {
         <p className="sidebar-note">No skills found for "{query}".</p>
       )}
 
+      {showFeatured && !featuredLoading && featured.length > 0 && (
+        <p className="sidebar-note" style={{ marginBottom: "var(--space-2)" }}>
+          Popular skills
+        </p>
+      )}
+
       <ul className="skill-results" ref={resultsRef}>
-        {results.map((skill) => (
+        {displayList.map((skill) => (
           <li key={skill.id} className="skill-card">
             <div className="skill-card-header">
               <span className="skill-card-name">{skill.name}</span>

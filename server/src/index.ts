@@ -7,6 +7,7 @@ import { streamRouter } from "./routes/stream.js";
 import { historyRouter } from "./routes/history.js";
 import { skillsRouter } from "./routes/skills.js";
 import { agentsRouter } from "./routes/agents.js";
+import { modelsRouter } from "./routes/models.js";
 
 const app = new Hono();
 
@@ -17,6 +18,7 @@ app.route("/api/pipeline", streamRouter);
 app.route("/api/runs", historyRouter);
 app.route("/api/skills", skillsRouter);
 app.route("/api/agents", agentsRouter);
+app.route("/api/models", modelsRouter);
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`Server running on http://localhost:${info.port}`);

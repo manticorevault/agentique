@@ -19,6 +19,9 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export const searchSkills = (q: string) =>
   req<SkillSearchResponse>("GET", `/api/skills/search?q=${encodeURIComponent(q)}`);
 
+export const fetchFeaturedSkills = () =>
+  req<SkillSearchResponse>("GET", "/api/skills/featured");
+
 export const listAgents = () =>
   req<AgentListResponse>("GET", "/api/agents");
 

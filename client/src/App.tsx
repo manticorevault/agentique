@@ -10,6 +10,7 @@ import { AgentBuilder } from "./components/AgentBuilder.js";
 import { SkillBrowser } from "./components/SkillBrowser.js";
 import { ArtifactsPage } from "./components/ArtifactsPage.js";
 import { useRunStream } from "./hooks/useRunStream.js";
+import { useModels } from "./hooks/useModels.js";
 import { decomposeWorkflow, confirmPipeline } from "./api/client.js";
 import { DEFAULT_MODEL } from "@skillrunner/shared";
 import type { Pipeline, StepRun, Agent } from "@skillrunner/shared";
@@ -117,6 +118,8 @@ export function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | undefined>(undefined);
 
+  const { defaultModel } = useModels();
+
   // Workflow flow state
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
@@ -125,6 +128,15 @@ export function App() {
   const [startedAt, setStartedAt] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Sync selected model to live default once models load
+  useEffect(() => {
+    if (defaultModel && selectedModel === DEFAULT_MODEL) {
+      setSelectedModel(defaultModel);
+    }
+  // Only run this when defaultModel first becomes available
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultModel]);
 
   // Agent-launched run carries a synthetic Pipeline for the sidebar
   const [agentPipeline, setAgentPipeline] = useState<Pipeline | null>(null);
