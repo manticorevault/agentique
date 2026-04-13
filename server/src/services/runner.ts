@@ -85,6 +85,9 @@ function buildStepPrompt(
     `${skillSection}` +
     inputSection +
     `\n\n` +
+    `Available tools: bash, read, glob, grep, edit, write, webfetch, task, skill\n` +
+    `When the task requires live data from a URL, use the webfetch tool to retrieve it — ` +
+    `do NOT reason from training data when a real fetch is possible.\n\n` +
     `CRITICAL RULES — you MUST follow these without exception:\n` +
     `1. NEVER ask for permission, confirmation, or clarification. Proceed immediately.\n` +
     `2. NEVER say "Should I proceed?", "Do you want me to...?", or any similar question.\n` +

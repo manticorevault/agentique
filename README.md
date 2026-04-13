@@ -33,7 +33,7 @@ SkillRunner turns a natural-language description of a task into a multi-step pip
 2. **Decompose** — the server calls OpenRouter (Claude Haiku) to split the description into discrete named steps
 3. **Match** — each step is sent to the SkillsMP AI search API; the best matching skill (a GitHub-hosted prompt/agent config) is attached
 4. **Review** — the proposed pipeline is shown to the user, who can inspect each step's matched skill and choose a model
-5. **Run** — the server spawns one `opencode` subprocess per step in sequence; each agent receives the previous step's output as context
+5. **Run** — before each step executes, the server fetches the skill's `SKILL.md` from GitHub and injects its full text into the agent prompt; one `opencode` subprocess is spawned per step in sequence; each agent receives the previous step's output as context
 6. **Stream** — progress events are emitted over SSE in real time; the client reconstructs state with a reducer
 7. **Collect** — the final step's output is saved to SQLite and offered as a downloadable artifact
 
@@ -46,43 +46,45 @@ SkillRunner turns a natural-language description of a task into a multi-step pip
 ```mermaid
 graph TB
     subgraph Browser["Browser (React + Vite)"]
-        UI[WorkflowForm / AgentBuilder]
-        RV[RunView — live SSE consumer]
-        SB[SkillBrowser]
+        UI["WorkflowForm / AgentBuilder"]
+        RV["RunView — live SSE consumer"]
+        SB["SkillBrowser"]
     end
 
     subgraph Server["Server (Node.js + Hono)"]
-        WR[POST /api/workflow/decompose]
-        PR[POST /api/pipeline/run]
-        SSE[GET /api/pipeline/:id/stream]
-        AR[/api/agents CRUD]
-        SKR[GET /api/skills/search]
-        RS[runs store — in-memory EventEmitter]
-        DB[(SQLite — better-sqlite3)]
+        WR["POST /api/workflow/decompose"]
+        PR["POST /api/pipeline/run"]
+        SSE["GET /api/pipeline/:id/stream"]
+        AR["CRUD /api/agents"]
+        SKR["GET /api/skills/search+featured"]
+        RS["runs store — in-memory EventEmitter"]
+        DB[("SQLite — better-sqlite3")]
     end
 
     subgraph External["External services"]
-        OR[OpenRouter\nOpenAI-compatible API]
-        SMP[SkillsMP\nskillsmp.com/api/v1]
-        OC[opencode CLI\nspawned as child process]
+        OR["OpenRouter — OpenAI-compatible API"]
+        SMP["SkillsMP — skillsmp.com/api/v1"]
+        GH["GitHub — raw SKILL.md content"]
+        OC["opencode CLI — spawned as child process"]
     end
 
     UI -->|"POST description"| WR
     WR -->|"chat/completions (Haiku)"| OR
     WR -->|"GET /skills/ai-search"| SMP
-    WR -->|pipeline + matches| UI
+    WR -->|"pipeline + matches"| UI
 
     UI -->|"POST pipeline + model"| PR
     PR --> RS
-    PR -->|"startRun()"| OC
+    PR -->|"startRun() — fetch SKILL.md per step"| GH
+    PR -->|"spawn per step"| OC
     OC -->|"JSON events on stdout"| RS
-    RS -->|EventEmitter| SSE
+    RS -->|"EventEmitter"| SSE
     SSE -.->|"text/event-stream"| RV
 
-    PR -->|persist on finish| DB
+    PR -->|"persist on finish"| DB
     AR --> DB
-    SB -->|"GET /api/skills/search"| SKR
-    SKR -->|proxy| SMP
+    SB -->|"GET /api/skills/search+featured"| SKR
+    SKR -->|"proxy"| SMP
 ```
 
 ### Request & execution flow
@@ -310,6 +312,19 @@ opencode run --format json --model openrouter/anthropic/claude-haiku-4.5 "<promp
 (process exits 0)
 ```
 
+**Built-in tools available to every agent step:**
+
+| Tool | Purpose |
+|------|---------|
+| `webfetch` | Fetch live URLs — used for web scraping, competitor research, pricing pages |
+| `bash` | Run shell commands |
+| `read` / `write` / `edit` | File system access |
+| `glob` / `grep` | File search |
+| `task` | Spawn subtasks |
+| `skill` | Load additional skills |
+
+The agent prompt explicitly lists these tools and instructs the model to use `webfetch` for any task requiring live data — preventing the model from silently falling back to training-data reasoning when a real fetch is possible.
+
 ### OpenRouter for model routing
 
 OpenRouter provides a single OpenAI-compatible endpoint that proxies 200+ models. This means:
@@ -334,9 +349,9 @@ It also normalises legacy version strings (e.g. `claude-3-5-haiku` → `claude-3
 
 [SkillsMP](https://skillsmp.com) is a marketplace of AI skills — each skill is a GitHub-hosted file (prompt, system message, or agent config) authored by the community. SkillRunner queries the `/skills/ai-search` endpoint with the step name and description as a natural-language query; SkillsMP returns ranked results with confidence scores.
 
-The best match is attached to each step as a `SkillMatch`. When the agent runs, the skill name, description, and GitHub URL are injected into the system prompt. If no skill is found (`skillId === "no-match"`), the agent falls back to general reasoning.
+The best match is attached to each step as a `SkillMatch`. Before each step executes, `runner.ts` fetches the skill's raw `SKILL.md` from GitHub (`raw.githubusercontent.com/<owner>/<repo>/main/SKILL.md`, falling back to `master`) and injects the full content between `--- SKILL.md ---` delimiters in the agent prompt. Fetched content is cached in-process for 30 minutes. If the fetch fails, the agent falls back to the skill name and description from SkillsMP. If no skill is found at all (`skillId === "no-match"`), the agent uses general reasoning.
 
-**Skills are advisory, not imperative.** The agent is not forced to follow a skill — the skill provides context and intent, not executable code. This is a deliberate choice: brittle skill execution (fetching and running remote code per step) introduces security and reliability risks not worth taking in v1.
+**Skills are advisory, not imperative.** The agent is not forced to follow a skill — the skill provides context and intent, not executable code. This avoids the security and reliability risks of fetching and running remote code per step.
 
 ### Hono as the server framework
 
@@ -410,15 +425,14 @@ The workflow decomposition call (`/api/workflow/decompose`) uses a non-streaming
 
 ### Prompt injection as skill context vs. skill execution
 
-Skills are injected as *context* in the prompt, not *executed* as code. This means:
+Skills are injected as *context* in the prompt, not *executed* as code. Before each step, the server fetches the full `SKILL.md` from the skill's GitHub repo and embeds it verbatim in the agent prompt. This means:
 
 - ✅ No remote code execution surface
-- ✅ No dependency on skill repo uptime
-- ✅ Works even if the skill GitHub URL 404s
-- ❌ The agent may not follow the skill exactly
-- ❌ Skills designed as code templates won't work as intended
-
-This trade-off is acceptable for v1. A future version could fetch the skill file from GitHub and include its full content, giving the agent more precise instructions.
+- ✅ Agent receives precise, author-written instructions (not just a name/description)
+- ✅ Graceful degradation — if the fetch fails, falls back to SkillsMP metadata
+- ✅ 30-minute in-process cache avoids re-fetching on repeated runs
+- ❌ The agent interprets the skill instructions; it is not mechanically forced to follow them
+- ❌ Skills designed as executable code templates won't run as intended
 
 ### In-memory run state with eventual SQLite persistence
 
@@ -462,7 +476,7 @@ skillrunner/
 │       │   ├── pipeline.ts  # POST /api/pipeline/run
 │       │   ├── stream.ts    # GET  /api/pipeline/:id/stream (SSE)
 │       │   ├── history.ts   # GET  /api/runs
-│       │   ├── skills.ts    # GET  /api/skills/search
+│       │   ├── skills.ts    # GET  /api/skills/search + /featured
 │       │   └── agents.ts    # CRUD /api/agents + POST /:id/run
 │       ├── services/
 │       │   ├── openrouter.ts  # Workflow decomposition via LLM
@@ -669,6 +683,16 @@ Proxy to SkillsMP AI search.
 **Query params:** `?q=<query>&limit=12`
 
 **Response:** `{ "results": SkillSearchResult[], "query": string }`
+
+---
+
+### `GET /api/skills/featured`
+
+Returns up to 24 popular skills, ranked by stars then relevance score. Results are assembled by fanning out ~12 parallel queries across popular categories (web scraping, email, data analysis, etc.), deduplicating by skill ID, and caching the merged list for 1 hour.
+
+Displayed in the Browse Skills tab when the search box is empty.
+
+**Response:** `{ "results": SkillSearchResult[], "query": "" }`
 
 ---
 
