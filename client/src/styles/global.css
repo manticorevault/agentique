@@ -4,86 +4,245 @@
   padding: 0;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Design tokens
+───────────────────────────────────────────────────────────── */
 :root {
-  --color-bg: #0f0f10;
-  --color-surface: #1a1a1e;
-  --color-border: #2e2e34;
-  --color-text: #e8e8ed;
-  --color-text-muted: #8e8ea0;
-  --color-accent: #7c6ef7;
-  --color-accent-hover: #9585f9;
-  --color-success: #3ecf8e;
-  --color-error: #f87171;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --radius: 8px;
+  /* Typography scale */
+  --text-hero:    clamp(48px, 6vw, 88px);
+  --text-title1:  clamp(32px, 4vw, 56px);
+  --text-title2:  clamp(24px, 3vw, 36px);
+  --text-title3:  clamp(20px, 2.5vw, 26px);
+  --text-body:    17px;
+  --text-caption: 13px;
+  --text-label:   11px;
+
+  /* Spacing — 4px base */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* Border radius */
+  --radius-sm:   6px;
+  --radius-md:   12px;
+  --radius-lg:   18px;
+  --radius-xl:   28px;
+  --radius-full: 9999px;
+
+  /* Easing */
+  --ease-std: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-in:  cubic-bezier(0.4,  0,   1,   1);
+  --ease-out: cubic-bezier(0,    0,   0.2, 1);
+  --ease-spr: cubic-bezier(0.16, 1,   0.3, 1);
+
+  /* Light mode */
+  --color-bg-primary:     #FFFFFF;
+  --color-bg-secondary:   #F5F5F7;
+  --color-bg-tertiary:    #E8E8ED;
+  --color-text-primary:   #1D1D1F;
+  --color-text-secondary: #6E6E73;
+  --color-text-tertiary:  #AEAEB2;
+  --color-border:         rgba(0, 0, 0, 0.08);
+  --color-border-strong:  rgba(0, 0, 0, 0.16);
+  --color-accent:         #0071E3;
+  --color-accent-hover:   #0077ED;
+  --color-accent-subtle:  rgba(0, 113, 227, 0.10);
+  --color-success:        #28CD41;
+  --color-success-subtle: rgba(40, 205, 65, 0.12);
+  --color-error:          #FF3B30;
+  --color-error-subtle:   rgba(255, 59, 48, 0.12);
+
+  /* Fonts */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+               "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg-primary:     #000000;
+    --color-bg-secondary:   #1C1C1E;
+    --color-bg-tertiary:    #2C2C2E;
+    --color-text-primary:   #F5F5F7;
+    --color-text-secondary: #AEAEB2;
+    --color-text-tertiary:  #6E6E73;
+    --color-border:         rgba(255, 255, 255, 0.08);
+    --color-border-strong:  rgba(255, 255, 255, 0.16);
+    --color-accent:         #2997FF;
+    --color-accent-hover:   #47A8FF;
+    --color-accent-subtle:  rgba(41, 151, 255, 0.14);
+    --color-success:        #30D158;
+    --color-success-subtle: rgba(48, 209, 88, 0.14);
+    --color-error:          #FF453A;
+    --color-error-subtle:   rgba(255, 69, 58, 0.14);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Base
+───────────────────────────────────────────────────────────── */
 html, body {
   height: 100%;
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
   font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: var(--text-body);
+  line-height: 1.65;
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-#root {
-  height: 100%;
-}
+#root { height: 100%; }
 
 a {
   color: var(--color-accent);
   text-decoration: none;
 }
+a:hover { text-decoration: underline; }
 
-a:hover {
-  text-decoration: underline;
-}
-
+/* ─────────────────────────────────────────────────────────────
+   Buttons
+───────────────────────────────────────────────────────────── */
 button {
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   background: var(--color-accent);
   color: #fff;
   border: none;
-  border-radius: var(--radius);
-  padding: 0.6rem 1.25rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  transition: background 0.15s;
-}
-
-button:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-}
-
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-textarea {
-  width: 100%;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 0.75rem 1rem;
+  border-radius: var(--radius-full);
+  padding: 12px 22px;
   font-family: var(--font-sans);
-  font-size: 0.95rem;
-  resize: vertical;
+  font-size: var(--text-body);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  min-height: 44px;
+  transition: background 0.2s var(--ease-std);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button:active:not(:disabled) {
+    transform: scale(0.97);
+    transition-duration: 0.15s;
+  }
+}
+
+button:hover:not(:disabled) { background: var(--color-accent-hover); }
+button:disabled { opacity: 0.38; cursor: not-allowed; }
+
+button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Inputs
+───────────────────────────────────────────────────────────── */
+input, textarea, select {
+  width: 100%;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  letter-spacing: -0.01em;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.18s var(--ease-std);
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 44px;
 }
 
-textarea:focus {
-  border-color: var(--color-accent);
+input::placeholder,
+textarea::placeholder { color: var(--color-text-tertiary); }
+
+input:focus,
+textarea:focus,
+select:focus { border-color: var(--color-accent); }
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
+textarea { resize: vertical; min-height: 44px; }
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%236E6E73' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 38px;
+  cursor: pointer;
+}
+
+select option {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Typography
+───────────────────────────────────────────────────────────── */
 pre {
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: var(--text-caption);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Scroll-driven reveal
+───────────────────────────────────────────────────────────── */
+.fade-in-up {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fade-in-up {
+    transition: opacity 0.6s var(--ease-out),
+                transform 0.6s var(--ease-spr);
+  }
+  .fade-in-up.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in-up { opacity: 1; transform: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Glass utility — nav, modals, floating panels only
+───────────────────────────────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 0.5px solid rgba(255, 255, 255, 0.28);
+}
+
+@media (prefers-color-scheme: dark) {
+  .glass {
+    background: rgba(28, 28, 30, 0.80);
+    border-color: rgba(255, 255, 255, 0.10);
+  }
 }

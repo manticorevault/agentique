@@ -1,5 +1,6 @@
 import type { Pipeline } from "@skillrunner/shared";
 import { SUPPORTED_MODELS } from "@skillrunner/shared";
+import { useFadeInList } from "../hooks/useFadeInList.js";
 
 interface Props {
   pipeline: Pipeline;
@@ -18,12 +19,13 @@ export function PipelineReview({
   onBack,
   loading,
 }: Props) {
+  const stepsRef = useFadeInList<HTMLOListElement>(80);
   return (
     <div className="pipeline-review">
       <h2>Proposed pipeline</h2>
       <p className="workflow-description">"{pipeline.description}"</p>
 
-      <ol className="steps-list">
+      <ol className="steps-list" ref={stepsRef}>
         {pipeline.steps.map((step) => {
           const match = pipeline.matches.find((m) => m.stepId === step.id);
           return (

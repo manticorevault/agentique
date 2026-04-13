@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import type { SkillSearchResult } from "@skillrunner/shared";
 import { searchSkills } from "../api/agents.js";
+import { useFadeInList } from "../hooks/useFadeInList.js";
 
 interface Props {
   /** When provided, renders a "Select" button and calls this instead of showing GitHub link */
@@ -14,6 +15,7 @@ export function SkillBrowser({ onSelect }: Props) {
   const [error, setError] = useState("");
   const [searched, setSearched] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resultsRef = useFadeInList<HTMLUListElement>(40);
 
   function handleChange(value: string) {
     setQuery(value);
@@ -56,7 +58,7 @@ export function SkillBrowser({ onSelect }: Props) {
         <p className="sidebar-note">No skills found for "{query}".</p>
       )}
 
-      <ul className="skill-results">
+      <ul className="skill-results" ref={resultsRef}>
         {results.map((skill) => (
           <li key={skill.id} className="skill-card">
             <div className="skill-card-header">

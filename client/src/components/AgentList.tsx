@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Agent } from "@skillrunner/shared";
 import { SUPPORTED_MODELS } from "@skillrunner/shared";
 import { listAgents, deleteAgent, runAgent } from "../api/agents.js";
+import { useFadeInList } from "../hooks/useFadeInList.js";
 
 interface Props {
   onEdit: (agent: Agent) => void;
@@ -48,6 +49,7 @@ export function AgentList({ onEdit, onRunStarted, onNew }: Props) {
   const [loading, setLoading] = useState(true);
   const [runningAgent, setRunningAgent] = useState<Agent | null>(null);
   const [error, setError] = useState("");
+  const listRef = useFadeInList<HTMLUListElement>();
 
   async function load() {
     try {
@@ -102,7 +104,7 @@ export function AgentList({ onEdit, onRunStarted, onNew }: Props) {
         </div>
       )}
 
-      <ul className="agent-cards">
+      <ul className="agent-cards" ref={listRef}>
         {agents.map((agent) => {
           const modelLabel = SUPPORTED_MODELS.find((m) => m.id === agent.model)?.label ?? agent.model;
           return (

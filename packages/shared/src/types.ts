@@ -117,35 +117,41 @@ export interface SupportedModel {
 
 export const SUPPORTED_MODELS: SupportedModel[] = [
   // ── Anthropic ──────────────────────────────────────────────────────────────
-  { id: "anthropic/claude-haiku-4-5",           label: "Claude Haiku 4.5",         note: "Fast · cheap" },
-  { id: "anthropic/claude-3.5-haiku",           label: "Claude 3.5 Haiku",         note: "Fast · cheap" },
-  { id: "anthropic/claude-sonnet-4-5",          label: "Claude Sonnet 4.5",        note: "Balanced" },
-  { id: "anthropic/claude-3.7-sonnet",          label: "Claude 3.7 Sonnet",        note: "Balanced · thinking" },
-  { id: "anthropic/claude-opus-4-5",            label: "Claude Opus 4.5",          note: "Most capable" },
+  { id: "anthropic/claude-haiku-4.5",             label: "Claude Haiku 4.5",          note: "Fast · $1/$5 per M" },
+  { id: "anthropic/claude-sonnet-4.5",            label: "Claude Sonnet 4.5",         note: "Balanced · $3/$15 per M" },
+  { id: "anthropic/claude-sonnet-4.6",            label: "Claude Sonnet 4.6",         note: "Latest · 1M ctx · $3/$15 per M" },
+  { id: "anthropic/claude-opus-4.5",              label: "Claude Opus 4.5",           note: "Capable · $5/$25 per M" },
+  { id: "anthropic/claude-opus-4.6",              label: "Claude Opus 4.6",           note: "Most capable · 1M ctx · $5/$25 per M" },
   // ── OpenAI ─────────────────────────────────────────────────────────────────
-  { id: "openai/gpt-4o-mini",                   label: "GPT-4o Mini",              note: "Fast · cheap" },
-  { id: "openai/gpt-4o",                        label: "GPT-4o",                   note: "Capable" },
-  { id: "openai/o3-mini",                       label: "o3-mini",                  note: "Reasoning · fast" },
-  { id: "openai/o3",                            label: "o3",                       note: "Reasoning · powerful" },
-  { id: "openai/o4-mini",                       label: "o4-mini",                  note: "Reasoning · fast" },
-  { id: "openai/gpt-4.1",                       label: "GPT-4.1",                  note: "Latest · capable" },
-  { id: "openai/gpt-4.1-mini",                  label: "GPT-4.1 Mini",             note: "Fast · cheap" },
-  { id: "openai/gpt-4.1-nano",                  label: "GPT-4.1 Nano",             note: "Fastest · cheapest" },
+  { id: "openai/gpt-4.1-nano",                    label: "GPT-4.1 Nano",              note: "Fastest · $0.10/$0.40 per M" },
+  { id: "openai/gpt-4.1-mini",                    label: "GPT-4.1 Mini",              note: "Fast · $0.40/$1.60 per M" },
+  { id: "openai/gpt-4.1",                         label: "GPT-4.1",                   note: "Capable · 1M ctx · $2/$8 per M" },
+  { id: "openai/gpt-4o",                          label: "GPT-4o",                    note: "Proven · $2.50/$10 per M" },
+  { id: "openai/o4-mini",                         label: "o4-mini",                   note: "Reasoning · fast · $3.50/$4.40 per M" },
+  { id: "openai/o3",                              label: "o3",                        note: "Strong reasoning · $10/$8 per M" },
   // ── Google ─────────────────────────────────────────────────────────────────
-  { id: "google/gemini-flash-2.0",              label: "Gemini 2.0 Flash",         note: "Fast · cheap" },
-  { id: "google/gemini-2.0-flash-lite-001",     label: "Gemini 2.0 Flash Lite",    note: "Fastest · cheapest" },
-  { id: "google/gemini-2.5-flash-preview",      label: "Gemini 2.5 Flash",         note: "Balanced · thinking" },
-  { id: "google/gemini-2.5-pro-preview",        label: "Gemini 2.5 Pro",           note: "Most capable" },
+  { id: "google/gemini-2.0-flash-001",            label: "Gemini 2.0 Flash",          note: "Fast · 1M ctx · $0.10/$0.40 per M" },
+  { id: "google/gemini-2.5-flash-lite",           label: "Gemini 2.5 Flash Lite",     note: "Fastest 2.5 · 1M ctx · $0.10/$0.40 per M" },
+  { id: "google/gemini-2.5-flash",                label: "Gemini 2.5 Flash",          note: "Balanced · 1M ctx · $0.30/$2.50 per M" },
+  { id: "google/gemini-2.5-pro",                  label: "Gemini 2.5 Pro",            note: "Most capable · 1M ctx · $1.25/$10 per M" },
+  // ── xAI ────────────────────────────────────────────────────────────────────
+  { id: "x-ai/grok-3-mini",                       label: "Grok 3 Mini",               note: "Reasoning · $0.30/$0.50 per M" },
+  { id: "x-ai/grok-4",                            label: "Grok 4",                    note: "Latest · 256K ctx · $3/$15 per M" },
   // ── Meta ───────────────────────────────────────────────────────────────────
-  { id: "meta-llama/llama-4-scout",             label: "Llama 4 Scout",            note: "Open · fast" },
-  { id: "meta-llama/llama-4-maverick",          label: "Llama 4 Maverick",         note: "Open · capable" },
-  { id: "meta-llama/llama-3.3-70b-instruct",   label: "Llama 3.3 70B",            note: "Open · balanced" },
+  { id: "meta-llama/llama-4-scout",               label: "Llama 4 Scout",             note: "Open · fast · $0.08/$0.30 per M" },
+  { id: "meta-llama/llama-4-maverick",            label: "Llama 4 Maverick",          note: "Open · capable · 1M ctx · $0.15/$0.60 per M" },
+  { id: "meta-llama/llama-3.3-70b-instruct",      label: "Llama 3.3 70B",             note: "Open · proven · $0.10/$0.32 per M" },
   // ── Mistral ────────────────────────────────────────────────────────────────
-  { id: "mistralai/mistral-small-3.1-24b-instruct", label: "Mistral Small 3.1",   note: "Open · fast" },
-  { id: "mistralai/mistral-medium-3",           label: "Mistral Medium 3",         note: "Balanced" },
+  { id: "mistralai/mistral-small-3.2-24b-instruct", label: "Mistral Small 3.2",       note: "Open · cheap · $0.07/$0.20 per M" },
+  { id: "mistralai/mistral-large-2512",            label: "Mistral Large",             note: "Open · capable · $0.50/$1.50 per M" },
   // ── DeepSeek ───────────────────────────────────────────────────────────────
-  { id: "deepseek/deepseek-chat-v3-0324",       label: "DeepSeek V3",              note: "Open · capable" },
-  { id: "deepseek/deepseek-r1",                 label: "DeepSeek R1",              note: "Open · reasoning" },
+  { id: "deepseek/deepseek-chat-v3-0324",          label: "DeepSeek V3",               note: "Open · capable · $0.20/$0.77 per M" },
+  { id: "deepseek/deepseek-r1-0528",               label: "DeepSeek R1 (0528)",        note: "Open · reasoning · $0.50/$2.15 per M" },
+  // ── Qwen ───────────────────────────────────────────────────────────────────
+  { id: "qwen/qwen3-32b",                          label: "Qwen3 32B",                 note: "Open · balanced · $0.07/$0.24 per M" },
+  { id: "qwen/qwen3-235b-a22b-2507",               label: "Qwen3 235B",                note: "Open · huge · $0.03/$0.10 per M" },
+  // ── Moonshot ───────────────────────────────────────────────────────────────
+  { id: "moonshotai/kimi-k2",                      label: "Kimi K2",                   note: "Long ctx · capable · $0.57/$2.30 per M" },
 ];
 
 export const DEFAULT_MODEL = SUPPORTED_MODELS[0].id;
