@@ -1,7 +1,8 @@
 import { spawn } from "child_process";
-import { writeFile, mkdir, readdir, stat, copyFile } from "fs/promises";
+import { writeFile, mkdir, readdir, stat, copyFile, rm } from "fs/promises";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
+import { tmpdir } from "os";
 import {
   getRunState,
   emitEvent,
@@ -101,6 +102,7 @@ interface OpencodeEvent {
 function runOpencode(
   prompt: string,
   model: string,
+  cwd: string,
   onChunk: (chunk: string) => void
 ): Promise<OpencodeResult> {
   return new Promise((resolve, reject) => {
@@ -115,7 +117,7 @@ function runOpencode(
     const child = spawn(
       "opencode",
       ["run", "--format", "json", "--model", opModel, prompt],
-      { env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"] }
+      { env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"], cwd }
     );
 
     function processLine(trimmed: string) {
@@ -175,6 +177,10 @@ export async function startRun(runId: string): Promise<void> {
   const { run, pipeline } = state;
   run.status = "running";
 
+  // Give each run its own working directory so concurrent runs don't share a filesystem namespace
+  const runDir = resolve(tmpdir(), `skillrunner-run-${runId}`);
+  await mkdir(runDir, { recursive: true });
+
   let prevOutput = state.initialInput;
   let totalCostUsd = 0;
 
@@ -211,6 +217,7 @@ export async function startRun(runId: string): Promise<void> {
       result = await runOpencode(
         prompt,
         step.model ?? state.model ?? DEFAULT_MODEL,
+        runDir,
         (chunk) => emitEvent(runId, { type: "step_output", runId, stepId: step.id, chunk })
       );
     } catch (err) {
@@ -249,24 +256,23 @@ export async function startRun(runId: string): Promise<void> {
     try {
       await mkdir(ARTIFACTS_DIR, { recursive: true });
 
-      // Copy the last .md file written by OpenCode during this run (if any)
-      const cwd = process.cwd();
-      const files = await readdir(cwd);
+      // Copy the last .md file written by OpenCode during this run (if any).
+      // Scan runDir — the isolated per-run working directory — so concurrent runs
+      // never pick up each other's files.
+      const files = await readdir(runDir);
       const mdFiles = await Promise.all(
         files
           .filter((f) => f.endsWith(".md"))
           .map(async (f) => {
-            const s = await stat(resolve(cwd, f));
+            const s = await stat(resolve(runDir, f));
             return { name: f, mtime: s.mtime.getTime() };
           })
       );
-      const lastMd = mdFiles
-        .filter((f) => f.mtime >= state.startedAt)
-        .sort((a, b) => b.mtime - a.mtime)[0];
+      const lastMd = mdFiles.sort((a, b) => b.mtime - a.mtime)[0];
 
       if (lastMd) {
         const dest = resolve(ARTIFACTS_DIR, lastMd.name);
-        await copyFile(resolve(cwd, lastMd.name), dest);
+        await copyFile(resolve(runDir, lastMd.name), dest);
         console.log(`[runner] Copied ${lastMd.name} → .artifacts/`);
       }
 
@@ -277,6 +283,9 @@ export async function startRun(runId: string): Promise<void> {
       }
     } catch (err) {
       console.error("[runner] Failed to save artifact:", err);
+    } finally {
+      // Clean up the temp working directory
+      await rm(runDir, { recursive: true, force: true }).catch(() => {});
     }
   })();
 }
