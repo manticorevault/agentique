@@ -11,6 +11,9 @@ const envSchema = z.object({
   SKILLSMP_API_KEY: z.string().min(1),
   OPENROUTER_API_KEY: z.string().min(1),
   PORT: z.coerce.number().default(3001),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  /** Public URL shown in Telegram links, e.g. https://yourserver.com or http://localhost:5173 */
+  PUBLIC_URL: z.string().url().optional().default("http://localhost:5173"),
 });
 
 const parsed = envSchema.safeParse(process.env);

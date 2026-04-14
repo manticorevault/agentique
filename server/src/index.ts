@@ -8,6 +8,8 @@ import { historyRouter } from "./routes/history.js";
 import { skillsRouter } from "./routes/skills.js";
 import { agentsRouter } from "./routes/agents.js";
 import { modelsRouter } from "./routes/models.js";
+import { telegramRouter } from "./routes/telegram.js";
+import { startPolling } from "./services/telegram.js";
 
 const app = new Hono();
 
@@ -19,9 +21,13 @@ app.route("/api/runs", historyRouter);
 app.route("/api/skills", skillsRouter);
 app.route("/api/agents", agentsRouter);
 app.route("/api/models", modelsRouter);
+app.route("/api/telegram", telegramRouter);
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`Server running on http://localhost:${info.port}`);
+  if (env.TELEGRAM_BOT_TOKEN) {
+    startPolling();
+  }
 });
 
 export default app;
