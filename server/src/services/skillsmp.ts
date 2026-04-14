@@ -138,10 +138,28 @@ export async function getFeaturedSkills(): Promise<SkillSearchResult[]> {
   return featuredCache;
 }
 
-export async function searchSkills(
-  query: string,
-  limit = 12
-): Promise<SkillSearchResult[]> {
+// Common action verbs that appear in skill names on SkillsMP
+const ACTION_VERBS = ["write", "create", "generate", "send", "build", "analyze", "scrape", "summarize"];
+
+// Returns true if the query already contains an action verb
+function hasVerb(q: string): boolean {
+  const lower = q.toLowerCase();
+  return ACTION_VERBS.some((v) => lower.includes(v));
+}
+
+// Expand a bare noun query into several verb+noun variants that match SkillsMP naming
+function expandQuery(query: string): string[] {
+  const q = query.trim();
+  const variants: string[] = [q];
+
+  if (q.split(/\s+/).length <= 2 && !hasVerb(q)) {
+    variants.push(`write ${q}`, `create ${q}`, `generate ${q}`, `build ${q}`);
+  }
+
+  return [...new Set(variants)]; // deduplicate in case query already starts with a verb
+}
+
+async function rawSearch(query: string, limit: number): Promise<SkillSearchResult[]> {
   const url = `${SKILLSMP_BASE}/skills/ai-search?q=${encodeURIComponent(query.slice(0, 120))}`;
 
   const res = await fetch(url, {
@@ -167,4 +185,35 @@ export async function searchSkills(
     stars: item.skill.stars,
     score: item.score,
   }));
+}
+
+export async function searchSkills(
+  query: string,
+  limit = 12
+): Promise<SkillSearchResult[]> {
+  const queries = expandQuery(query);
+
+  // Fan out all variants in parallel; ignore individual failures
+  const settled = await Promise.allSettled(queries.map((q) => rawSearch(q, limit)));
+
+  // Merge results — keep highest score when the same skill appears in multiple variants
+  const best = new Map<string, SkillSearchResult>();
+  for (const result of settled) {
+    if (result.status !== "fulfilled") continue;
+    for (const skill of result.value) {
+      const existing = best.get(skill.id);
+      if (!existing || skill.score > existing.score) {
+        best.set(skill.id, skill);
+      }
+    }
+  }
+
+  // If every variant failed, surface the error from the first attempt
+  if (best.size === 0 && settled[0].status === "rejected") {
+    throw settled[0].reason as Error;
+  }
+
+  return [...best.values()]
+    .sort((a, b) => b.score - a.score || b.stars - a.stars)
+    .slice(0, limit);
 }
