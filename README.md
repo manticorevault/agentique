@@ -1,8 +1,8 @@
-# SkillRunner
+# Agentique
 
 **Compose AI workflows from plain English. Each step runs a dedicated agent preloaded with a matched skill. Outputs chain automatically. One final artifact.**
 
-SkillRunner turns a natural-language description of a task into a multi-step pipeline where every step is executed by an isolated AI agent. You describe *what* you want done; SkillRunner figures out *which skills* to use, *which model* to run each step on, and streams the results back in real time.
+Agentique turns a natural-language description of a task into a multi-step pipeline where every step is executed by an isolated AI agent. You describe *what* you want done; Agentique figures out *which skills* to use, *which model* to run each step on, and streams the results back in real time.
 
 ---
 
@@ -16,6 +16,10 @@ SkillRunner turns a natural-language description of a task into a multi-step pip
   - [Run state machine](#run-state-machine)
   - [Client component tree](#client-component-tree)
   - [Data model](#data-model)
+- [Features](#features)
+  - [Discovery-first skill shelf](#discovery-first-skill-shelf)
+  - [Input forms from skill schema](#input-forms-from-skill-schema)
+  - [Cost estimates](#cost-estimates)
 - [Technical decisions](#technical-decisions)
 - [Trade-offs](#trade-offs)
 - [Project structure](#project-structure)
@@ -29,13 +33,14 @@ SkillRunner turns a natural-language description of a task into a multi-step pip
 
 ## How it works
 
-1. **Describe** a workflow in plain English — *"Scrape a URL, summarise the content, write a LinkedIn post"*
+1. **Discover or describe** — browse the featured skill shelf on the home screen and start directly from a skill, or describe a workflow in plain English
 2. **Decompose** — the server calls OpenRouter (Claude Haiku) to split the description into discrete named steps
 3. **Match** — each step is sent to the SkillsMP AI search API; the best matching skill (a GitHub-hosted prompt/agent config) is attached
-4. **Review** — the proposed pipeline is shown to the user, who can inspect each step's matched skill and choose a model
-5. **Run** — before each step executes, the server fetches the skill's `SKILL.md` from GitHub and injects its full text into the agent prompt; one `opencode` subprocess is spawned per step in sequence; each agent receives the previous step's output as context
-6. **Stream** — progress events are emitted over SSE in real time; the client reconstructs state with a reducer
-7. **Collect** — the final step's output is saved to SQLite and offered as a downloadable artifact
+4. **Review** — the proposed pipeline is shown with a pre-run cost estimate; the user inspects each step's matched skill and chooses a model
+5. **Configure** — if any skill declares required inputs (via SKILL.md schema), a blocking form collects them before the run starts; values are injected into each agent's prompt
+6. **Run** — before each step executes, the server fetches the skill's `SKILL.md` from GitHub and injects its full text into the agent prompt; one `opencode` subprocess is spawned per step in sequence; each agent receives the previous step's output as context
+7. **Stream** — progress events are emitted over SSE in real time; the client reconstructs state with a reducer
+8. **Collect** — the final step's output is saved to SQLite and offered as a downloadable artifact; actual token usage and cost from OpenRouter are recorded per step
 
 ---
 
@@ -46,7 +51,7 @@ SkillRunner turns a natural-language description of a task into a multi-step pip
 ```mermaid
 graph TB
     subgraph Browser["Browser (React + Vite)"]
-        UI["WorkflowForm / AgentBuilder"]
+        UI["WorkflowForm / FeaturedSkills / AgentBuilder"]
         RV["RunView — live SSE consumer"]
         SB["SkillBrowser"]
     end
@@ -54,6 +59,7 @@ graph TB
     subgraph Server["Server (Node.js + Hono)"]
         WR["POST /api/workflow/decompose"]
         PR["POST /api/pipeline/run"]
+        IS["POST /api/pipeline/input-schema"]
         SSE["GET /api/pipeline/:id/stream"]
         AR["CRUD /api/agents"]
         SKR["GET /api/skills/search+featured"]
@@ -73,7 +79,12 @@ graph TB
     WR -->|"GET /skills/ai-search"| SMP
     WR -->|"pipeline + matches"| UI
 
-    UI -->|"POST pipeline + model"| PR
+    UI -->|"POST pipeline"| IS
+    IS -->|"fetch SKILL.md per step"| GH
+    IS -->|"LLM parse (Haiku)"| OR
+    IS -->|"input schemas"| UI
+
+    UI -->|"POST pipeline + model + inputs"| PR
     PR --> RS
     PR -->|"startRun() — fetch SKILL.md per step"| GH
     PR -->|"spawn per step"| OC
@@ -99,7 +110,7 @@ sequenceDiagram
     participant OC as opencode (child process)
     participant DB as SQLite
 
-    User->>Client: Describe workflow
+    User->>Client: Describe workflow (or pick a skill)
     Client->>Server: POST /api/workflow/decompose { description }
     Server->>OR: chat/completions (claude-haiku-4.5)\n"decompose into JSON steps"
     OR-->>Server: [ {name, description}, … ]
@@ -107,21 +118,34 @@ sequenceDiagram
     SMP-->>Server: [ { skill, score }, … ]
     Server-->>Client: { pipeline: { steps[], matches[] } }
 
-    User->>Client: Review + confirm
-    Client->>Server: POST /api/pipeline/run { pipeline, model }
+    Note over Client: Show PipelineReview with pre-run cost estimate
+
+    Client->>Server: POST /api/pipeline/input-schema { pipeline }
+    Server->>GH: fetch SKILL.md per step (parallel)
+    Server->>OR: LLM parse input fields (Haiku, only if needed)
+    Server-->>Client: { schemas: StepInputSchema[] }
+
+    alt Any step has required inputs
+        Note over Client: Show WorkflowInputModal — user fills fields
+    end
+
+    User->>Client: Confirm + Run
+    Client->>Server: POST /api/pipeline/run { pipeline, model, inputs }
     Server-->>Client: { runId }
 
     Note over Server,OC: Fire-and-forget — execution runs asynchronously
 
     loop For each step in sequence
         Server->>OC: spawn opencode run --format json --model <model> <prompt>
+        Note over OC: Prompt includes: SKILL.md content + user inputs + prev output
         OC-->>Server: { type:"text", part:{text} } (streaming JSON lines)
-        Server->>Client: SSE: step_start / step_output chunks / step_finish
+        OC-->>Server: { type:"step_finish", part:{tokens, cost} }
+        Server->>Client: SSE: step_start / step_output chunks / step_finish { tokens, costUsd }
     end
 
-    Server->>DB: INSERT run (pipeline, steps, finalOutput, status)
-    Server->>Client: SSE: run_finish { finalOutput }
-    Client->>User: Show artifact + download options
+    Server->>DB: INSERT run (pipeline, steps, finalOutput, status, cost_usd)
+    Server->>Client: SSE: run_finish { finalOutput, totalCostUsd }
+    Client->>User: Show artifact + cost breakdown + download options
 ```
 
 ### SSE streaming pipeline
@@ -187,8 +211,10 @@ graph TD
     App["App\n(phase state machine)"]
 
     App --> Nav[AppNav]
-    App --> WF[WorkflowForm\nhero + textarea]
-    App --> PR[PipelineReview\nstep cards + model picker]
+    App --> WF["WorkflowForm\nhero + textarea"]
+    App --> FS["FeaturedSkills\nskill shelf grid"]
+    App --> PR["PipelineReview\nstep cards + model picker + cost estimate"]
+    App --> WIM["WorkflowInputModal\npre-run input form"]
     App --> RS[RunScreen\nrun shell wrapper]
     App --> RR[RunReplay\nhistory playback]
     App --> AL[AgentList\nsaved agents]
@@ -196,8 +222,9 @@ graph TD
     App --> AP[ArtifactsPage\npast run outputs]
     App --> SKP[SkillBrowserPage]
 
+    WF --> FS
     RS --> RV[RunView\nlive step cards]
-    RS --> SB2[Sidebar\nglass panel — details, cost, artifacts]
+    RS --> SB2["Sidebar\nglass panel — details, actual cost, artifacts"]
 
     AB --> SKB[SkillBrowser\ndebounced search]
     SKP --> SKB
@@ -241,6 +268,9 @@ erDiagram
         string error
         int    startedAt
         int    finishedAt
+        int    tokensInput
+        int    tokensOutput
+        float  costUsd
     }
     Agent {
         string id PK
@@ -260,6 +290,7 @@ erDiagram
         string repoUrl
         int    order
         string model "optional override"
+        json   inputSchema "InputField[]"
     }
     HistoryEntry {
         string id PK
@@ -269,6 +300,7 @@ erDiagram
         string error
         int    startedAt
         int    finishedAt
+        float  totalCostUsd
     }
 
     Pipeline ||--o{ WorkflowStep : "has"
@@ -281,12 +313,89 @@ erDiagram
 
 **SQLite schema** (two tables):
 
-| Table    | Key columns                                                                 |
-|----------|-----------------------------------------------------------------------------|
-| `runs`   | `id`, `pipeline_json`, `model`, `status`, `steps_json`, `final_output`, `error`, `started_at`, `finished_at` |
+| Table    | Key columns |
+|----------|-------------|
+| `runs`   | `id`, `pipeline_json`, `model`, `status`, `steps_json`, `final_output`, `error`, `started_at`, `finished_at`, `cost_usd` |
 | `agents` | `id`, `name`, `description`, `model`, `steps_json`, `created_at`, `updated_at` |
 
 Both tables store nested structures as JSON columns to avoid schema migrations as the data shapes evolve.
+
+---
+
+## Features
+
+### Discovery-first skill shelf
+
+The home screen shows a featured skill shelf below the workflow textarea so users can start from a skill rather than a blank description.
+
+**How it works:**
+
+The server fans out ~12 parallel `GET /skills/ai-search` queries across popular categories (web scraping, email, data analysis, SEO, social media, etc.), deduplicates the results by skill ID, and sorts by stars then relevance score. The merged list is cached in-process for 1 hour. On the client, `FeaturedSkills` groups the results into the three largest categories and shows up to four cards each.
+
+Clicking a skill card bypasses the decomposition step entirely — the client builds a synthetic single-step `Pipeline` from the skill's metadata and jumps straight to `PipelineReview`. This is the fastest path from intent to execution: zero LLM calls, no waiting.
+
+**Entry points:**
+
+| Path | Description |
+|------|-------------|
+| Textarea → "Build pipeline" | Natural-language decomposition via LLM |
+| Skill card on home screen | Single-step pipeline from featured skill |
+| Browse Skills tab | Full search with `GET /api/skills/search` |
+
+### Input forms from skill schema
+
+Before a pipeline run starts, Agentique checks each step's `SKILL.md` for declared input fields and shows a blocking form to collect them. The values are injected verbatim into the agent's prompt.
+
+**Detection pipeline** (`server/src/services/skillInputs.ts`):
+
+1. **YAML block** — looks for a `inputs:` key in a fenced YAML block within `SKILL.md`
+2. **Markdown table** — parses `## Inputs` or `## Parameters` sections with `| Name | Type | Required |` columns
+3. **Bulleted list** — extracts `- **label** (required)` / `- **label** (optional)` patterns
+4. **LLM fallback** — if none of the above match, calls Claude Haiku with the skill name, description, and full `SKILL.md` content and asks it to return 0–3 `InputField` objects as JSON
+
+The result is a `StepInputSchema` with one `InputField` per detected input (`text`, `textarea`, `url`, or `number`). Steps with no detected fields are excluded. If no step has any required inputs, the modal is skipped entirely and the run starts immediately.
+
+**Prompt injection:**
+
+```
+User-provided inputs:
+- Target URL: https://example.com
+- Output format: bullet points
+```
+
+This section appears in the agent prompt after the skill content and before the previous step's output. The agent is instructed to use these values rather than asking for them.
+
+### Cost estimates
+
+Agentique shows cost information at every stage of the pipeline lifecycle.
+
+#### Pre-run estimate (PipelineReview)
+
+Before the run starts, a cost table appears below the step list:
+
+- **Per step:** estimated input tokens (500 base + skill description length ÷ 4 + 300 for context injection) and output tokens (input × 1.5), converted to USD using the selected model's published OpenRouter pricing
+- **Total row:** sum across all steps
+- The estimate updates live as the user changes the model selector, so it's easy to compare cost tiers
+
+Pricing lives in `MODEL_PRICES` in `packages/shared/src/types.ts` — a static map of `{ input, output }` USD-per-million-tokens for 27+ models. Selecting a different model recalculates the estimate instantly without any API call.
+
+#### Running cost counter (Sidebar)
+
+During and after a run, the sidebar shows actual token usage and cost sourced from OpenRouter via opencode's `step_finish` events:
+
+```json
+{ "type": "step_finish", "part": { "tokens": { "input": 1240, "output": 380 }, "cost": 0.000032 } }
+```
+
+These values are accumulated per step in `runner.ts` and emitted in the `step_finish` SSE event. The client's `useRunStream` reducer writes `tokens` and `costUsd` onto each `StepRun`. The sidebar displays:
+
+| State | Label | Source |
+|-------|-------|--------|
+| Running | "Cost so far" | Actual, sum of completed steps |
+| Complete | "Cost" | `totalCostUsd` from `run_finish` event |
+| No usage data | "Estimated" | Output-text heuristic fallback |
+
+The total is also persisted to the `cost_usd` column in SQLite and shown in history replays.
 
 ---
 
@@ -294,7 +403,7 @@ Both tables store nested structures as JSON columns to avoid schema migrations a
 
 ### OpenCode as the agent runtime
 
-SkillRunner uses [OpenCode](https://opencode.ai) — an open-source, embeddable AI coding agent — as the execution engine for each pipeline step. It is spawned as a child process via `opencode run --format json --model <id> <prompt>`.
+Agentique uses [OpenCode](https://opencode.ai) — an open-source, embeddable AI coding agent — as the execution engine for each pipeline step. It is spawned as a child process via `opencode run --format json --model <id> <prompt>`.
 
 **Why not call OpenRouter directly from the server?**
 
@@ -309,6 +418,7 @@ opencode run --format json --model openrouter/anthropic/claude-haiku-4.5 "<promp
 ↓
 {"type":"text","part":{"text":"chunk..."}}
 {"type":"text","part":{"text":"more..."}}
+{"type":"step_finish","part":{"tokens":{"input":1240,"output":380},"cost":0.000032}}
 (process exits 0)
 ```
 
@@ -343,11 +453,9 @@ OpenCode expects model IDs in the form `openrouter/<provider>/<model>`, while Op
 // openai/gpt-4.1-nano           →  openrouter/openai/gpt-4.1-nano
 ```
 
-It also normalises legacy version strings (e.g. `claude-3-5-haiku` → `claude-3.5-haiku`) for older model IDs that use hyphens instead of dots.
-
 ### SkillsMP for skill discovery
 
-[SkillsMP](https://skillsmp.com) is a marketplace of AI skills — each skill is a GitHub-hosted file (prompt, system message, or agent config) authored by the community. SkillRunner queries the `/skills/ai-search` endpoint with the step name and description as a natural-language query; SkillsMP returns ranked results with confidence scores.
+[SkillsMP](https://skillsmp.com) is a marketplace of AI skills — each skill is a GitHub-hosted file (prompt, system message, or agent config) authored by the community. Agentique queries the `/skills/ai-search` endpoint with the step name as a natural-language query (capped at 100 characters to avoid 500 errors on long descriptions); SkillsMP returns ranked results with confidence scores.
 
 The best match is attached to each step as a `SkillMatch`. Before each step executes, `runner.ts` fetches the skill's raw `SKILL.md` from GitHub (`raw.githubusercontent.com/<owner>/<repo>/main/SKILL.md`, falling back to `master`) and injects the full content between `--- SKILL.md ---` delimiters in the agent prompt. Fetched content is cached in-process for 30 minutes. If the fetch fails, the agent falls back to the skill name and description from SkillsMP. If no skill is found at all (`skillId === "no-match"`), the agent uses general reasoning.
 
@@ -379,7 +487,7 @@ In-memory state (`Map<runId, PipelineRunState>`) is lost on server restart. With
 
 This is an explicitly local-first tool. PostgreSQL would require Docker or a managed service, defeating the "clone and run" goal.
 
-**Schema design — JSON columns:** Pipeline, steps, and matches are stored as JSON strings rather than normalised tables. This trades query flexibility for schema stability: the TypeScript types are the schema, and adding fields to a type doesn't require an ALTER TABLE.
+**Schema design — JSON columns:** Pipeline, steps, and matches are stored as JSON strings rather than normalised tables. This trades query flexibility for schema stability: the TypeScript types are the schema, and adding fields to a type doesn't require an ALTER TABLE. New columns (like `cost_usd`) are added via a migration guard that silently ignores `column already exists` errors on startup.
 
 ### SSE over WebSockets
 
@@ -396,7 +504,7 @@ Server-Sent Events were chosen over WebSockets for real-time streaming because:
 The project uses three packages:
 
 ```
-packages/shared/   — TypeScript types + model list, compiled to dist/
+packages/shared/   — TypeScript types + model pricing, compiled to dist/
 server/            — Hono API server
 client/            — React + Vite SPA
 ```
@@ -434,20 +542,33 @@ Skills are injected as *context* in the prompt, not *executed* as code. Before e
 - ❌ The agent interprets the skill instructions; it is not mechanically forced to follow them
 - ❌ Skills designed as executable code templates won't run as intended
 
+### Input schema detection is best-effort
+
+The `skillInputs.ts` service tries four strategies in order (YAML → table → bullets → LLM). The LLM fallback (Haiku) keeps the detection rate high but adds latency to the pre-run modal for skills that don't use a structured format. If the LLM returns malformed JSON, the step is silently skipped and the run proceeds without inputs for that step.
+
+**Cost:** occasional missed inputs or a 1–2 second delay before the modal appears.  
+**Benefit:** works with any SKILL.md format without requiring skill authors to adopt a specific schema convention.
+
+### Cost estimates are approximations
+
+The pre-run estimate uses rough heuristics (500 token overhead + skill description length ÷ 4 + 300 for context) and a static price map. Actual costs depend on the full SKILL.md length, the model's context window usage, and tool call overhead from OpenCode. The estimate is displayed with a "rough estimate" disclaimer.
+
+Actual costs — sourced from OpenRouter's `step_finish` usage events — are always shown post-run and replace the estimates once available.
+
 ### In-memory run state with eventual SQLite persistence
 
 Live runs are tracked in a `Map` in the server process. SQLite is written only when a run terminates. This means:
 
 - ✅ Zero database latency during streaming
 - ✅ EventEmitter fan-out is trivially fast
-- ❌ If the server crashes mid-run, the run is lost (status stays `running` in SQLite if it was previously saved — it won't be, since saves happen on completion)
+- ❌ If the server crashes mid-run, the run is lost
 - ❌ Multiple server instances cannot share run state
 
 For a single-user local tool, these limitations are acceptable.
 
 ### No authentication
 
-There is no auth layer. SkillRunner is designed as a local development tool. API keys (OpenRouter, SkillsMP) live in a `.env` file and are never exposed to the client. The server should not be exposed to the public internet without adding authentication.
+There is no auth layer. Agentique is designed as a local development tool. API keys (OpenRouter, SkillsMP) live in a `.env` file and are never exposed to the client. The server should not be exposed to the public internet without adding authentication.
 
 ---
 
@@ -464,7 +585,7 @@ skillrunner/
 ├── packages/
 │   └── shared/              # @skillrunner/shared
 │       └── src/
-│           ├── types.ts     # All shared types + SUPPORTED_MODELS
+│           ├── types.ts     # All shared types, MODEL_PRICES, getModelPrices
 │           └── index.ts     # Re-export barrel
 │
 ├── server/
@@ -473,18 +594,20 @@ skillrunner/
 │       ├── env.ts           # Zod-validated environment config
 │       ├── routes/
 │       │   ├── workflow.ts  # POST /api/workflow/decompose
-│       │   ├── pipeline.ts  # POST /api/pipeline/run
+│       │   ├── pipeline.ts  # POST /api/pipeline/run + /input-schema
 │       │   ├── stream.ts    # GET  /api/pipeline/:id/stream (SSE)
 │       │   ├── history.ts   # GET  /api/runs
 │       │   ├── skills.ts    # GET  /api/skills/search + /featured
 │       │   └── agents.ts    # CRUD /api/agents + POST /:id/run
 │       ├── services/
-│       │   ├── openrouter.ts  # Workflow decomposition via LLM
-│       │   ├── skillsmp.ts    # Skill discovery + proxy
-│       │   └── runner.ts      # OpenCode subprocess orchestration
+│       │   ├── openrouter.ts   # Workflow decomposition via LLM
+│       │   ├── skillsmp.ts     # Skill discovery + proxy
+│       │   ├── skillContent.ts # SKILL.md fetch + 30-min cache
+│       │   ├── skillInputs.ts  # Input field detection (YAML/table/bullets/LLM)
+│       │   └── runner.ts       # OpenCode subprocess orchestration
 │       └── store/
-│           ├── runs.ts        # In-memory run state + EventEmitter
-│           └── db.ts          # SQLite read/write via better-sqlite3
+│           ├── runs.ts         # In-memory run state + EventEmitter
+│           └── db.ts           # SQLite read/write via better-sqlite3
 │
 └── client/
     └── src/
@@ -494,25 +617,29 @@ skillrunner/
         │   ├── client.ts        # Typed fetch wrappers for workflow/pipeline
         │   └── agents.ts        # Typed fetch wrappers for agents/skills
         ├── components/
-        │   ├── WorkflowForm.tsx
-        │   ├── PipelineReview.tsx
+        │   ├── WorkflowForm.tsx        # Hero textarea + featured skill shelf
+        │   ├── FeaturedSkills.tsx      # Skill card grid grouped by category
+        │   ├── PipelineReview.tsx      # Step cards + model picker + cost estimate
+        │   ├── WorkflowInputModal.tsx  # Pre-run input collection modal
         │   ├── RunView.tsx
         │   ├── RunReplay.tsx
-        │   ├── Sidebar.tsx
+        │   ├── Sidebar.tsx             # Run details + actual cost + artifacts
         │   ├── HistoryPanel.tsx
         │   ├── AgentList.tsx
         │   ├── AgentBuilder.tsx
         │   ├── SkillBrowser.tsx
         │   ├── ArtifactsPage.tsx
-        │   └── ArtifactDownload.tsx
+        │   ├── ArtifactDownload.tsx
+        │   └── UnicornHeadIcon.tsx     # Lucide lab icon wrapper
         ├── hooks/
-        │   ├── useRunStream.ts   # EventSource → useReducer
+        │   ├── useRunStream.ts   # EventSource → useReducer (incl. cost/token state)
         │   └── useFadeInList.ts  # IntersectionObserver stagger reveal
         ├── styles/
         │   ├── global.css        # Design tokens, base resets, animations
         │   └── components.css    # All component styles
         └── utils/
-            ├── cost.ts           # Token estimation + USD formatting
+            ├── cost.ts           # estimatePreRunCost, calcCostUsd, formatUsd
+            ├── modelLabel.ts     # Display name from OpenRouter model ID
             └── uuid.ts           # Client-side UUID generation
 ```
 
@@ -580,8 +707,8 @@ Outputs:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SKILLSMP_API_KEY` | Yes | API key from [skillsmp.com](https://skillsmp.com/docs/api). Used for skill discovery on every workflow decomposition and agent step. |
-| `OPENROUTER_API_KEY` | Yes | API key from [openrouter.ai](https://openrouter.ai). Used for workflow decomposition (server-side) and injected into OpenCode's environment for step execution. |
+| `SKILLSMP_API_KEY` | Yes | API key from [skillsmp.com](https://skillsmp.com/docs/api). Used for skill discovery on every workflow decomposition and featured shelf fetch. |
+| `OPENROUTER_API_KEY` | Yes | API key from [openrouter.ai](https://openrouter.ai). Used for workflow decomposition and input-schema LLM fallback (server-side), and injected into OpenCode's environment for step execution. |
 | `PORT` | No | HTTP port for the Hono server. Defaults to `3001`. |
 
 The server validates all required variables at startup using [Zod](https://zod.dev) and exits immediately with a descriptive error if any are missing or malformed.
@@ -624,6 +751,34 @@ Decompose a natural-language description into a pipeline with matched skills.
 
 ---
 
+### `POST /api/pipeline/input-schema`
+
+Detect required input fields for each step in a pipeline by parsing each skill's `SKILL.md`. Called after pipeline review, before the run starts.
+
+**Request**
+```json
+{ "pipeline": { "id": "...", "steps": [...], "matches": [...] } }
+```
+
+**Response**
+```json
+{
+  "schemas": [
+    {
+      "stepId": "step-1",
+      "stepName": "Scrape target URL",
+      "fields": [
+        { "id": "f1", "label": "Target URL", "type": "url", "placeholder": "https://...", "required": true }
+      ]
+    }
+  ]
+}
+```
+
+Only steps with at least one detected field are included. Returns `{ "schemas": [] }` if no inputs are needed.
+
+---
+
 ### `POST /api/pipeline/run`
 
 Start executing a confirmed pipeline. Returns immediately with a `runId`; progress is streamed via SSE.
@@ -632,7 +787,10 @@ Start executing a confirmed pipeline. Returns immediately with a `runId`; progre
 ```json
 {
   "pipeline": { "id": "...", "steps": [...], "matches": [...] },
-  "model": "anthropic/claude-haiku-4.5"
+  "model": "anthropic/claude-haiku-4.5",
+  "inputs": {
+    "step-1": { "Target URL": "https://example.com" }
+  }
 }
 ```
 
@@ -653,9 +811,9 @@ SSE endpoint. Emits one JSON event per `data:` line. Replays all past events on 
 |------|---------|
 | `step_start` | `{ runId, stepId, stepName, order, startedAt }` |
 | `step_output` | `{ runId, stepId, chunk }` — may fire many times |
-| `step_finish` | `{ runId, stepId, output, finishedAt }` |
+| `step_finish` | `{ runId, stepId, output, finishedAt, tokens?, costUsd? }` |
 | `step_error` | `{ runId, stepId, error, finishedAt }` |
-| `run_finish` | `{ runId, finalOutput }` |
+| `run_finish` | `{ runId, finalOutput, totalCostUsd? }` |
 | `run_error` | `{ runId, error }` |
 
 ---
@@ -690,7 +848,7 @@ Proxy to SkillsMP AI search.
 
 Returns up to 24 popular skills, ranked by stars then relevance score. Results are assembled by fanning out ~12 parallel queries across popular categories (web scraping, email, data analysis, etc.), deduplicating by skill ID, and caching the merged list for 1 hour.
 
-Displayed in the Browse Skills tab when the search box is empty.
+Displayed on the home screen skill shelf and in the Browse Skills tab when the search box is empty.
 
 **Response:** `{ "results": SkillSearchResult[], "query": "" }`
 
@@ -749,37 +907,37 @@ Run a saved agent.
 
 ## Supported models
 
-Models are defined in `packages/shared/src/types.ts` as `SUPPORTED_MODELS`. The list is verified against the live OpenRouter API. As of **April 2026**:
+Models are defined in `packages/shared/src/types.ts` as `MODEL_PRICES` — a static map used for both the model selector and pre-run cost estimates. As of **April 2026**:
 
-| Provider | Model ID | Notes |
-|----------|----------|-------|
-| Anthropic | `anthropic/claude-haiku-4.5` | Default — fast, cheap |
-| Anthropic | `anthropic/claude-sonnet-4.5` | Balanced |
-| Anthropic | `anthropic/claude-sonnet-4.6` | Latest, 1M context |
-| Anthropic | `anthropic/claude-opus-4.5` | Capable |
-| Anthropic | `anthropic/claude-opus-4.6` | Most capable, 1M context |
-| OpenAI | `openai/gpt-4.1-nano` | Fastest, cheapest |
-| OpenAI | `openai/gpt-4.1-mini` | Fast |
-| OpenAI | `openai/gpt-4.1` | Capable, 1M context |
-| OpenAI | `openai/gpt-4o` | Proven multimodal |
-| OpenAI | `openai/o4-mini` | Reasoning, fast |
-| OpenAI | `openai/o3` | Strong reasoning |
-| Google | `google/gemini-2.0-flash-001` | Fast, 1M context |
-| Google | `google/gemini-2.5-flash-lite` | Fastest Gemini 2.5 |
-| Google | `google/gemini-2.5-flash` | Balanced, 1M context |
-| Google | `google/gemini-2.5-pro` | Best Google model |
-| xAI | `x-ai/grok-3-mini` | Reasoning |
-| xAI | `x-ai/grok-4` | Latest xAI, 256K context |
-| Meta | `meta-llama/llama-4-scout` | Open, fast |
-| Meta | `meta-llama/llama-4-maverick` | Open, capable, 1M context |
-| Meta | `meta-llama/llama-3.3-70b-instruct` | Open, proven |
-| Mistral | `mistralai/mistral-small-3.2-24b-instruct` | Open, cheapest |
-| Mistral | `mistralai/mistral-large-2512` | Capable, good price |
-| DeepSeek | `deepseek/deepseek-chat-v3-0324` | Open, capable |
-| DeepSeek | `deepseek/deepseek-r1-0528` | Open, reasoning |
-| Qwen | `qwen/qwen3-32b` | Open, very cheap |
-| Qwen | `qwen/qwen3-235b-a22b-2507` | Open, huge, cheapest per token |
-| Moonshot | `moonshotai/kimi-k2` | Long context |
+| Provider | Model ID | Input $/M | Output $/M |
+|----------|----------|-----------|------------|
+| Anthropic | `anthropic/claude-haiku-4.5` | $1.00 | $5.00 |
+| Anthropic | `anthropic/claude-sonnet-4.5` | $3.00 | $15.00 |
+| Anthropic | `anthropic/claude-sonnet-4.6` | $3.00 | $15.00 |
+| Anthropic | `anthropic/claude-opus-4.5` | $15.00 | $75.00 |
+| Anthropic | `anthropic/claude-opus-4.6` | $15.00 | $75.00 |
+| OpenAI | `openai/gpt-4.1-nano` | $0.10 | $0.40 |
+| OpenAI | `openai/gpt-4.1-mini` | $0.40 | $1.60 |
+| OpenAI | `openai/gpt-4.1` | $2.00 | $8.00 |
+| OpenAI | `openai/gpt-4o` | $2.50 | $10.00 |
+| OpenAI | `openai/o4-mini` | $1.10 | $4.40 |
+| OpenAI | `openai/o3` | $10.00 | $40.00 |
+| Google | `google/gemini-2.0-flash-001` | $0.10 | $0.40 |
+| Google | `google/gemini-2.5-flash-lite` | $0.10 | $0.40 |
+| Google | `google/gemini-2.5-flash` | $0.30 | $2.50 |
+| Google | `google/gemini-2.5-pro` | $1.25 | $10.00 |
+| xAI | `x-ai/grok-3-mini` | $0.30 | $0.50 |
+| xAI | `x-ai/grok-4` | $3.00 | $15.00 |
+| Meta | `meta-llama/llama-4-scout` | $0.08 | $0.30 |
+| Meta | `meta-llama/llama-4-maverick` | $0.15 | $0.60 |
+| Meta | `meta-llama/llama-3.3-70b-instruct` | $0.10 | $0.32 |
+| Mistral | `mistralai/mistral-small-3.2-24b-instruct` | $0.07 | $0.20 |
+| Mistral | `mistralai/mistral-large-2512` | $0.50 | $1.50 |
+| DeepSeek | `deepseek/deepseek-chat-v3-0324` | $0.20 | $0.77 |
+| DeepSeek | `deepseek/deepseek-r1-0528` | $0.50 | $2.15 |
+| Qwen | `qwen/qwen3-32b` | $0.07 | $0.24 |
+| Qwen | `qwen/qwen3-235b-a22b-2507` | $0.03 | $0.10 |
+| Moonshot | `moonshotai/kimi-k2` | $0.57 | $2.30 |
 
 **Per-step model override:** in the Agent Builder, each step can use a different model than the agent's default. A common pattern is to use a cheap fast model (Haiku, GPT-4.1 Nano) for data processing steps and a capable model (Sonnet, GPT-4.1) only for the final synthesis step.
 
@@ -805,9 +963,9 @@ npm run typecheck
 
 Runs `tsc --noEmit` across all three packages in dependency order.
 
-### Adding a new model
+### Adding a model
 
-Edit `SUPPORTED_MODELS` in `packages/shared/src/types.ts`, then rebuild shared. Model IDs must match the OpenRouter format (`provider/model-name`). The `toOpencodeModelId()` function handles the translation to OpenCode's `openrouter/provider/model` format automatically.
+Edit `MODEL_PRICES` in `packages/shared/src/types.ts`, then rebuild shared. Model IDs must match the OpenRouter format (`provider/model-name`). The `toOpencodeModelId()` function handles the translation to OpenCode's `openrouter/provider/model` format automatically.
 
 To verify a model ID is live on OpenRouter before adding it:
 
@@ -834,4 +992,4 @@ The database file is created at `<repo-root>/.skillrunner.db` on first run. To r
 rm .skillrunner.db
 ```
 
-The schema is recreated automatically on next startup via `CREATE TABLE IF NOT EXISTS`.
+The schema is recreated automatically on next startup via `CREATE TABLE IF NOT EXISTS`. New columns added in later versions are applied via migration guards at startup — they silently no-op if the column already exists.
