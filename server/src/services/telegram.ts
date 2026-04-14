@@ -1,17 +1,13 @@
 import { randomUUID } from "crypto";
-import { writeFile, mkdir } from "fs/promises";
-import { fileURLToPath } from "url";
-import { dirname, resolve } from "path";
+import { writeFile, readFile, mkdir, readdir, stat } from "fs/promises";
+import { resolve } from "path";
 import { env } from "../env.js";
 import { decomposeWorkflow } from "./openrouter.js";
 import { matchSkills } from "./skillsmp.js";
 import { createRun, getRunState } from "../store/runs.js";
-import { startRun } from "./runner.js";
+import { startRun, ARTIFACTS_DIR } from "./runner.js";
 import { DEFAULT_MODEL } from "@skillrunner/shared";
 import type { Pipeline, RunEvent } from "@skillrunner/shared";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ARTIFACTS_DIR = resolve(__dirname, "../../../../.artifacts");
 
 // ─── Telegram API helpers ─────────────────────────────────────────────────────
 
@@ -34,10 +30,15 @@ async function tgCall(method: string, body: Record<string, unknown>): Promise<un
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  const text = await res.text();
   if (!res.ok) {
-    console.error(`[Telegram] ${method} failed:`, await res.text());
+    console.error(`[Telegram] ${method} failed:`, text);
   }
-  return res.json();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
 }
 
 async function sendMessage(chatId: number, text: string, extra?: Record<string, unknown>) {
@@ -70,6 +71,8 @@ interface RunningState {
 type ConvState = IdleState | ConfirmingState | RunningState;
 
 const conversations = new Map<number, ConvState>();
+// Stores the last artifact file listing per chat so /send <n> works
+const lastFileLists = new Map<number, string[]>();
 
 function getState(chatId: number): ConvState {
   return conversations.get(chatId) ?? { phase: "idle" };
@@ -110,35 +113,43 @@ function formatCost(usd?: number): string {
 // Telegram hard limit for text messages
 const TG_MAX_CHARS = 4096;
 
+/** Escape characters that Telegram's HTML parse mode would misinterpret. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /**
  * Send the artifact as a Telegram message if it fits within the character limit.
- * If it's too long, save it as a .txt file and send the file as a document instead.
+ * If it's too long, read the file the runner already saved and send it as a document.
  */
 async function sendArtifact(chatId: number, output: string, runId: string): Promise<void> {
   if (output.length <= TG_MAX_CHARS) {
-    await sendMessage(chatId, output);
+    await sendMessage(chatId, escapeHtml(output));
     return;
   }
 
-  // Save to file
-  await mkdir(ARTIFACTS_DIR, { recursive: true });
+  // The runner saves every output to .artifacts/ — reuse that file
   const filename = `agentique-output-${runId.slice(0, 8)}.txt`;
   const filePath = resolve(ARTIFACTS_DIR, filename);
-  await writeFile(filePath, output, "utf8");
 
-  // Send the file as a Telegram document
+  // Give the runner's async write a moment to finish, then read
+  let buf: Buffer;
+  try {
+    buf = await readFile(filePath);
+  } catch {
+    // File not ready yet — fall back to writing it ourselves
+    await mkdir(ARTIFACTS_DIR, { recursive: true });
+    await writeFile(filePath, output, "utf8");
+    buf = Buffer.from(output, "utf8");
+  }
+
   const form = new FormData();
   form.append("chat_id", String(chatId));
   form.append("caption", `📄 Output too long for a message (${output.length.toLocaleString()} chars) — sending as file.`);
-  form.append(
-    "document",
-    new Blob([output], { type: "text/plain" }),
-    filename
-  );
+  form.append("document", new Blob([buf], { type: "text/plain" }), filename);
 
   const res = await fetch(`${BASE()}/sendDocument`, { method: "POST", body: form });
   if (!res.ok) {
-    // File send failed — fall back to showing the local path
     await sendMessage(
       chatId,
       `📄 Output saved to file (${output.length.toLocaleString()} chars):\n<code>${filePath}</code>`
@@ -225,7 +236,7 @@ async function handleMessage(msg: TgMessage) {
   if (text === "/start" || text === "/help") {
     return sendMessage(
       chatId,
-      `👋 <b>Welcome to Agentique!</b>\n\nDescribe a workflow in plain English and I'll build it.\n\n<b>Examples:</b>\n• <i>Scrape HackerNews and summarise the top 10 stories</i>\n• <i>Research the latest Claude releases and write a tweet thread</i>\n\nCommands:\n/run — confirm a proposed pipeline\n/cancel — discard the current pipeline\n/status — check if a run is in progress`
+      `👋 <b>Welcome to Agentique!</b>\n\nDescribe a workflow in plain English and I'll build it.\n\n<b>Examples:</b>\n• <i>Scrape HackerNews and summarise the top 10 stories</i>\n• <i>Research the latest Claude releases and write a tweet thread</i>\n\n<b>Commands:</b>\n/run — confirm a proposed pipeline\n/cancel — discard the current pipeline\n/status — check if a run is in progress\n/artifacts — list saved output files\n/send &lt;n&gt; — send an artifact file by number`
     );
   }
 
@@ -244,6 +255,77 @@ async function handleMessage(msg: TgMessage) {
       return sendMessage(chatId, "⏸ Waiting for your confirmation. Reply /run to start or /cancel to discard.");
     }
     return sendMessage(chatId, "💤 No active run. Send me a workflow description to get started.");
+  }
+
+  // List artifact files
+  if (text === "/artifacts") {
+    try {
+      await mkdir(ARTIFACTS_DIR, { recursive: true });
+      const files = await readdir(ARTIFACTS_DIR);
+      if (files.length === 0) {
+        return sendMessage(chatId, "📂 No artifacts yet. Run a pipeline to generate output files.");
+      }
+      // Gather stats and sort newest first
+      const entries = await Promise.all(
+        files.map(async (name) => {
+          const s = await stat(resolve(ARTIFACTS_DIR, name));
+          return { name, size: s.size, mtime: s.mtime };
+        })
+      );
+      entries.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+      lastFileLists.set(chatId, entries.map((e) => e.name));
+
+      const lines = ["<b>📂 Artifacts</b>\n"];
+      for (let i = 0; i < entries.length; i++) {
+        const { name, size, mtime } = entries[i];
+        const kb = (size / 1024).toFixed(1);
+        const date = mtime.toISOString().slice(0, 10);
+        lines.push(`${i + 1}. <code>${name}</code>\n   ${kb} KB · ${date}`);
+      }
+      lines.push("\nReply <code>/send &lt;number&gt;</code> to send a file.");
+      return sendMessage(chatId, lines.join("\n"));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return sendMessage(chatId, `❌ Could not list artifacts:\n<code>${msg.slice(0, 300)}</code>`);
+    }
+  }
+
+  // Send a specific artifact file
+  if (text.startsWith("/send")) {
+    const arg = text.slice("/send".length).trim();
+    let filename: string | undefined;
+
+    const fileList = lastFileLists.get(chatId);
+    const idx = parseInt(arg, 10);
+    if (!isNaN(idx) && fileList) {
+      filename = fileList[idx - 1];
+    } else if (arg) {
+      filename = arg;
+    }
+
+    if (!filename) {
+      return sendMessage(
+        chatId,
+        "Usage: <code>/send &lt;number&gt;</code> (from /artifacts list) or <code>/send &lt;filename&gt;</code>"
+      );
+    }
+
+    const filePath = resolve(ARTIFACTS_DIR, filename);
+    try {
+      const s = await stat(filePath);
+      const form = new FormData();
+      form.append("chat_id", String(chatId));
+      form.append("caption", `📄 <b>${filename}</b>\n${(s.size / 1024).toFixed(1)} KB`);
+      const buf = await readFile(filePath);
+      form.append("document", new Blob([buf], { type: "text/plain" }), filename);
+      const res = await fetch(`${BASE()}/sendDocument`, { method: "POST", body: form });
+      if (!res.ok) {
+        return sendMessage(chatId, `❌ Failed to send file: ${await res.text()}`);
+      }
+      return;
+    } catch {
+      return sendMessage(chatId, `❌ File not found: <code>${filename}</code>\nRun /artifacts to see available files.`);
+    }
   }
 
   // Confirm run

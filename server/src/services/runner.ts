@@ -1,4 +1,7 @@
 import { spawn } from "child_process";
+import { writeFile, mkdir } from "fs/promises";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 import {
   getRunState,
   emitEvent,
@@ -10,6 +13,9 @@ import { saveRun } from "../store/db.js";
 import { DEFAULT_MODEL, toOpencodeModelId } from "@skillrunner/shared";
 import type { WorkflowStep, SkillMatch } from "@skillrunner/shared";
 import { fetchSkillMd } from "./skillContent.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+export const ARTIFACTS_DIR = resolve(__dirname, "../../../../.artifacts");
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
@@ -237,6 +243,14 @@ export async function startRun(runId: string): Promise<void> {
   run.totalCostUsd = totalCostUsd;
   emitEvent(runId, { type: "run_finish", runId, finalOutput: prevOutput, totalCostUsd });
   persist(runId);
+
+  // Save final output to .artifacts/ so it can be retrieved later (e.g. via Telegram)
+  if (prevOutput.trim()) {
+    const filename = `agentique-output-${runId.slice(0, 8)}.txt`;
+    void mkdir(ARTIFACTS_DIR, { recursive: true })
+      .then(() => writeFile(resolve(ARTIFACTS_DIR, filename), prevOutput, "utf8"))
+      .catch((err) => console.error("[runner] Failed to save artifact:", err));
+  }
 }
 
 function persist(runId: string): void {
