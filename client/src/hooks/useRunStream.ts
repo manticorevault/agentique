@@ -7,6 +7,7 @@ interface StreamState {
   finalOutput: string;
   error: string;
   finishedAt: number | null;
+  totalCostUsd: number | null;
 }
 
 type Action = { event: RunEvent };
@@ -39,7 +40,14 @@ function reducer(state: StreamState, { event }: Action): StreamState {
         ...state,
         steps: state.steps.map((s) =>
           s.stepId === event.stepId
-            ? { ...s, status: "complete", output: event.output, finishedAt: event.finishedAt }
+            ? {
+                ...s,
+                status: "complete",
+                output: event.output,
+                finishedAt: event.finishedAt,
+                tokens: event.tokens,
+                costUsd: event.costUsd,
+              }
             : s
         ),
       };
@@ -60,6 +68,7 @@ function reducer(state: StreamState, { event }: Action): StreamState {
         status: "complete",
         finalOutput: event.finalOutput,
         finishedAt: Date.now(),
+        totalCostUsd: event.totalCostUsd ?? null,
       };
     }
     case "run_error": {
@@ -82,6 +91,7 @@ export function useRunStream(runId: string, initialSteps: StepRun[]) {
     finalOutput: "",
     error: "",
     finishedAt: null,
+    totalCostUsd: null,
   });
 
   useEffect(() => {

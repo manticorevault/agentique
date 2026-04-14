@@ -42,6 +42,10 @@ export interface StepRun {
   error?: string;
   startedAt?: number;
   finishedAt?: number;
+  /** Actual token usage reported by opencode/OpenRouter for this step */
+  tokens?: { input: number; output: number };
+  /** Actual cost in USD for this step */
+  costUsd?: number;
 }
 
 export interface PipelineRun {
@@ -51,6 +55,7 @@ export interface PipelineRun {
   steps: StepRun[];
   finalOutput?: string;
   error?: string;
+  totalCostUsd?: number;
 }
 
 // ─── SSE Run Events ───────────────────────────────────────────────────────────
@@ -77,6 +82,8 @@ export interface RunEventStepFinish {
   stepId: string;
   output: string;
   finishedAt: number;
+  tokens?: { input: number; output: number };
+  costUsd?: number;
 }
 
 export interface RunEventStepError {
@@ -91,6 +98,7 @@ export interface RunEventRunFinish {
   type: "run_finish";
   runId: string;
   finalOutput: string;
+  totalCostUsd?: number;
 }
 
 export interface RunEventRunError {
@@ -132,6 +140,53 @@ export const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
  */
 export function toOpencodeModelId(openrouterId: string): string {
   return `openrouter/${openrouterId}`;
+}
+
+// ─── Model pricing ────────────────────────────────────────────────────────────
+
+export interface ModelPrices {
+  /** USD per million input tokens */
+  input: number;
+  /** USD per million output tokens */
+  output: number;
+}
+
+/** Static price map keyed by OpenRouter model ID. Prices in USD per million tokens. */
+export const MODEL_PRICES: Record<string, ModelPrices> = {
+  "anthropic/claude-haiku-4.5":                    { input: 1.00,  output: 5.00  },
+  "anthropic/claude-sonnet-4.5":                   { input: 3.00,  output: 15.00 },
+  "anthropic/claude-sonnet-4.6":                   { input: 3.00,  output: 15.00 },
+  "anthropic/claude-opus-4.5":                     { input: 15.00, output: 75.00 },
+  "anthropic/claude-opus-4.6":                     { input: 15.00, output: 75.00 },
+  "openai/gpt-4.1-nano":                           { input: 0.10,  output: 0.40  },
+  "openai/gpt-4.1-mini":                           { input: 0.40,  output: 1.60  },
+  "openai/gpt-4.1":                                { input: 2.00,  output: 8.00  },
+  "openai/gpt-4o":                                 { input: 2.50,  output: 10.00 },
+  "openai/o4-mini":                                { input: 1.10,  output: 4.40  },
+  "openai/o3":                                     { input: 10.00, output: 40.00 },
+  "google/gemini-2.0-flash-001":                   { input: 0.10,  output: 0.40  },
+  "google/gemini-2.5-flash-lite":                  { input: 0.10,  output: 0.40  },
+  "google/gemini-2.5-flash":                       { input: 0.30,  output: 2.50  },
+  "google/gemini-2.5-pro":                         { input: 1.25,  output: 10.00 },
+  "x-ai/grok-3-mini":                              { input: 0.30,  output: 0.50  },
+  "x-ai/grok-4":                                   { input: 3.00,  output: 15.00 },
+  "meta-llama/llama-4-scout":                      { input: 0.08,  output: 0.30  },
+  "meta-llama/llama-4-maverick":                   { input: 0.15,  output: 0.60  },
+  "meta-llama/llama-3.3-70b-instruct":             { input: 0.10,  output: 0.32  },
+  "mistralai/mistral-small-3.2-24b-instruct":      { input: 0.07,  output: 0.20  },
+  "mistralai/mistral-large-2512":                  { input: 0.50,  output: 1.50  },
+  "deepseek/deepseek-chat-v3-0324":                { input: 0.20,  output: 0.77  },
+  "deepseek/deepseek-r1-0528":                     { input: 0.50,  output: 2.15  },
+  "qwen/qwen3-32b":                                { input: 0.07,  output: 0.24  },
+  "qwen/qwen3-235b-a22b-2507":                     { input: 0.03,  output: 0.10  },
+  "moonshotai/kimi-k2":                            { input: 0.57,  output: 2.30  },
+};
+
+/** Fallback for models not in the price map */
+export const DEFAULT_PRICES: ModelPrices = { input: 1.00, output: 5.00 };
+
+export function getModelPrices(modelId: string): ModelPrices {
+  return MODEL_PRICES[modelId] ?? DEFAULT_PRICES;
 }
 
 // ─── Skill input fields ───────────────────────────────────────────────────────
@@ -265,6 +320,8 @@ export interface HistoryEntry {
   error?: string;
   startedAt: number;
   finishedAt?: number;
+  /** Actual total cost in USD, from OpenRouter usage data */
+  totalCostUsd?: number;
 }
 
 export interface HistoryListResponse {

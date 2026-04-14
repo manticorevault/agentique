@@ -1,4 +1,4 @@
-import type { Pipeline, PipelineRun, RunEvent, StepStatus } from "@skillrunner/shared";
+import type { Pipeline, PipelineRun, RunEvent, StepStatus, StepRun } from "@skillrunner/shared";
 import { DEFAULT_MODEL } from "@skillrunner/shared";
 import { EventEmitter } from "events";
 
@@ -85,4 +85,18 @@ export function updateStepTiming(
   if (!state) return;
   const step = state.run.steps.find((s) => s.stepId === stepId);
   if (step) step[field] = ts;
+}
+
+export function updateStepCost(
+  runId: string,
+  stepId: string,
+  tokens: StepRun["tokens"],
+  costUsd: number
+): void {
+  const state = store.get(runId);
+  if (!state) return;
+  const step = state.run.steps.find((s) => s.stepId === stepId);
+  if (!step) return;
+  step.tokens = tokens;
+  step.costUsd = costUsd;
 }

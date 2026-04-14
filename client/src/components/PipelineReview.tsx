@@ -1,6 +1,7 @@
 import type { Pipeline } from "@skillrunner/shared";
 import { useFadeInList } from "../hooks/useFadeInList.js";
 import { useModels } from "../hooks/useModels.js";
+import { estimatePreRunCost, formatUsd } from "../utils/cost.js";
 
 interface Props {
   pipeline: Pipeline;
@@ -21,6 +22,7 @@ export function PipelineReview({
 }: Props) {
   const stepsRef = useFadeInList<HTMLOListElement>(80);
   const { grouped, loading: modelsLoading } = useModels();
+  const estimate = estimatePreRunCost(pipeline, selectedModel);
 
   return (
     <div className="pipeline-review">
@@ -51,6 +53,29 @@ export function PipelineReview({
           );
         })}
       </ol>
+
+      {/* ── Cost estimate ───────────────────────────────── */}
+      <div className="pre-run-estimate">
+        <table className="estimate-table">
+          <tbody>
+            {estimate.steps.map((s, i) => (
+              <tr key={s.stepId}>
+                <td className="est-step">Step {i + 1} — {s.stepName}</td>
+                <td className="est-tokens">~{s.inputTokens.toLocaleString()} in / {s.outputTokens.toLocaleString()} out tok</td>
+                <td className="est-usd">{formatUsd(s.costUsd)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className="est-step est-total">Estimated total</td>
+              <td className="est-tokens est-total">~{estimate.totalInputTokens.toLocaleString()} / {estimate.totalOutputTokens.toLocaleString()} tok</td>
+              <td className="est-usd est-total">{formatUsd(estimate.totalCostUsd)}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <p className="estimate-note">Rough estimate · actual cost depends on skill content length and model output</p>
+      </div>
 
       <div className="model-selector">
         <label htmlFor="model-select">Model for all steps</label>

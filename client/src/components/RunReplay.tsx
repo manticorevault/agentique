@@ -60,6 +60,7 @@ export function RunReplay({ runId, onBack }: Props) {
           model={entry.model}
           startedAt={entry.startedAt}
           finishedAt={entry.finishedAt ?? null}
+          totalCostUsd={entry.totalCostUsd ?? null}
           onRerun={onBack}
           onClose={() => setSidebarOpen(false)}
         />

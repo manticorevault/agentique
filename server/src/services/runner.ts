@@ -4,6 +4,7 @@ import {
   emitEvent,
   updateStepStatus,
   updateStepTiming,
+  updateStepCost,
 } from "../store/runs.js";
 import { saveRun } from "../store/db.js";
 import { DEFAULT_MODEL, toOpencodeModelId } from "@skillrunner/shared";
@@ -69,20 +70,39 @@ function buildStepPrompt(
   );
 }
 
+interface OpencodeResult {
+  output: string;
+  tokens: { input: number; output: number };
+  costUsd: number;
+}
+
+interface OpencodeEvent {
+  type: string;
+  part?: {
+    text?: string;
+    tokens?: { input?: number; output?: number; total?: number };
+    cost?: number;
+  };
+  error?: unknown;
+}
+
 /**
  * Run a single opencode step.
  * Streams JSON events from opencode stdout line-by-line.
  * Calls onChunk for each text delta so the caller can emit SSE in real-time.
- * Returns the full accumulated text output when the process exits.
+ * Returns accumulated text output plus actual token usage when the process exits.
  */
 function runOpencode(
   prompt: string,
   model: string,
   onChunk: (chunk: string) => void
-): Promise<string> {
+): Promise<OpencodeResult> {
   return new Promise((resolve, reject) => {
     const opModel = toOpencodeModelId(model);
     const textParts: string[] = [];
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCostUsd = 0;
     let stderr = "";
     let lineBuffer = "";
 
@@ -92,47 +112,47 @@ function runOpencode(
       { env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"] }
     );
 
+    function processLine(trimmed: string) {
+      if (!trimmed) return;
+      try {
+        const ev = JSON.parse(trimmed) as OpencodeEvent;
+        if (ev.type === "text" && ev.part?.text) {
+          textParts.push(ev.part.text);
+          onChunk(ev.part.text);
+        } else if (ev.type === "step_finish" && ev.part?.tokens) {
+          // opencode reports per-agent-step token usage — accumulate across all steps
+          totalInputTokens += ev.part.tokens.input ?? 0;
+          totalOutputTokens += ev.part.tokens.output ?? 0;
+          totalCostUsd += ev.part.cost ?? 0;
+        } else if (ev.type === "error") {
+          reject(new Error(`opencode error: ${JSON.stringify(ev.error)}`));
+        }
+      } catch {
+        // non-JSON line (progress spinner, etc.) — ignore
+      }
+    }
+
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (raw: string) => {
       lineBuffer += raw;
       const lines = lineBuffer.split("\n");
-      lineBuffer = lines.pop() ?? "";          // keep incomplete trailing line
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const ev = JSON.parse(trimmed) as { type: string; part?: { text?: string }; error?: unknown };
-          if (ev.type === "text" && ev.part?.text) {
-            textParts.push(ev.part.text);
-            onChunk(ev.part.text);
-          } else if (ev.type === "error") {
-            reject(new Error(`opencode error: ${JSON.stringify(ev.error)}`));
-          }
-        } catch {
-          // non-JSON line (progress spinner, etc.) — ignore
-        }
-      }
+      lineBuffer = lines.pop() ?? "";
+      for (const line of lines) processLine(line.trim());
     });
 
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => { stderr += chunk; });
 
     child.on("close", (code) => {
-      // flush any remaining buffered line
-      const last = lineBuffer.trim();
-      if (last) {
-        try {
-          const ev = JSON.parse(last) as { type: string; part?: { text?: string } };
-          if (ev.type === "text" && ev.part?.text) {
-            textParts.push(ev.part.text);
-            onChunk(ev.part.text);
-          }
-        } catch { /* ignore */ }
-      }
+      processLine(lineBuffer.trim()); // flush remainder
       if (code !== 0) {
         reject(new Error(`opencode exited ${code}: ${stderr.slice(0, 300)}`));
       } else {
-        resolve(textParts.join(""));
+        resolve({
+          output: textParts.join(""),
+          tokens: { input: totalInputTokens, output: totalOutputTokens },
+          costUsd: totalCostUsd,
+        });
       }
     });
 
@@ -150,6 +170,7 @@ export async function startRun(runId: string): Promise<void> {
   run.status = "running";
 
   let prevOutput = state.initialInput;
+  let totalCostUsd = 0;
 
   for (const step of pipeline.steps) {
     const match = pipeline.matches.find((m) => m.stepId === step.id);
@@ -179,9 +200,9 @@ export async function startRun(runId: string): Promise<void> {
     const userInputs = state.stepInputs?.[step.id];
     const prompt = buildStepPrompt(step, match, skillContent, prevOutput, pipeline.steps.length, userInputs);
 
-    let output: string;
+    let result: OpencodeResult;
     try {
-      output = await runOpencode(
+      result = await runOpencode(
         prompt,
         step.model ?? state.model ?? DEFAULT_MODEL,
         (chunk) => emitEvent(runId, { type: "step_output", runId, stepId: step.id, chunk })
@@ -199,17 +220,22 @@ export async function startRun(runId: string): Promise<void> {
       return;
     }
 
+    const { output, tokens, costUsd } = result;
+    totalCostUsd += costUsd;
+
     const stepFinishedAt = Date.now();
     updateStepStatus(runId, step.id, "complete", output);
     updateStepTiming(runId, step.id, "finishedAt", stepFinishedAt);
-    emitEvent(runId, { type: "step_finish", runId, stepId: step.id, output, finishedAt: stepFinishedAt });
+    updateStepCost(runId, step.id, tokens, costUsd);
+    emitEvent(runId, { type: "step_finish", runId, stepId: step.id, output, finishedAt: stepFinishedAt, tokens, costUsd });
 
     prevOutput = output;
   }
 
   run.status = "complete";
   run.finalOutput = prevOutput;
-  emitEvent(runId, { type: "run_finish", runId, finalOutput: prevOutput });
+  run.totalCostUsd = totalCostUsd;
+  emitEvent(runId, { type: "run_finish", runId, finalOutput: prevOutput, totalCostUsd });
   persist(runId);
 }
 

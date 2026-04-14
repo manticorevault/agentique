@@ -28,9 +28,17 @@ db.exec(`
     final_output TEXT    NOT NULL DEFAULT '',
     error        TEXT,
     started_at   INTEGER NOT NULL,
-    finished_at  INTEGER
+    finished_at  INTEGER,
+    cost_usd     REAL
   )
 `);
+
+// Migration: add cost_usd to existing databases that predate this column
+try {
+  db.exec("ALTER TABLE runs ADD COLUMN cost_usd REAL");
+} catch {
+  // Column already exists — safe to ignore
+}
 
 interface RunRow {
   id: string;
@@ -42,6 +50,7 @@ interface RunRow {
   error: string | null;
   started_at: number;
   finished_at: number | null;
+  cost_usd: number | null;
 }
 
 function rowToEntry(row: RunRow): HistoryEntry {
@@ -55,14 +64,15 @@ function rowToEntry(row: RunRow): HistoryEntry {
     error: row.error ?? undefined,
     startedAt: row.started_at,
     finishedAt: row.finished_at ?? undefined,
+    totalCostUsd: row.cost_usd ?? undefined,
   };
 }
 
 const insertRun = db.prepare<RunRow>(`
   INSERT OR REPLACE INTO runs
-    (id, pipeline_json, model, status, steps_json, final_output, error, started_at, finished_at)
+    (id, pipeline_json, model, status, steps_json, final_output, error, started_at, finished_at, cost_usd)
   VALUES
-    (@id, @pipeline_json, @model, @status, @steps_json, @final_output, @error, @started_at, @finished_at)
+    (@id, @pipeline_json, @model, @status, @steps_json, @final_output, @error, @started_at, @finished_at, @cost_usd)
 `);
 
 export function saveRun(entry: HistoryEntry): void {
@@ -76,6 +86,7 @@ export function saveRun(entry: HistoryEntry): void {
     error: entry.error ?? null,
     started_at: entry.startedAt,
     finished_at: entry.finishedAt ?? null,
+    cost_usd: entry.totalCostUsd ?? null,
   });
 }
 

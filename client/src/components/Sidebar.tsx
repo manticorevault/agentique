@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Pipeline, StepRun, RunStatus } from "@skillrunner/shared";
 import { modelLabel } from "../utils/modelLabel.js";
-import { estimateCost, formatUsd, formatDuration, stepTokens, stepCost } from "../utils/cost.js";
+import { formatUsd, formatDuration, calcCostUsd } from "../utils/cost.js";
 
 interface Props {
   runId: string;
@@ -12,6 +12,7 @@ interface Props {
   model: string;
   startedAt: number;
   finishedAt: number | null;
+  totalCostUsd: number | null;
   onRerun: () => void;
   onClose: () => void;
 }
@@ -54,16 +55,18 @@ export function Sidebar({
   model,
   startedAt,
   finishedAt,
+  totalCostUsd,
   onRerun,
   onClose,
 }: Props) {
-  const modelLabel = modelLabel(model);
+  const modelName = modelLabel(model);
   const duration = finishedAt != null ? formatDuration(finishedAt - startedAt) : null;
+  const stepsWithCost = steps.filter((s) => s.costUsd != null);
   const stepsWithOutput = steps.filter((s) => s.output.trim());
-  const { tokens: totalTokens, usd: totalUsd } = estimateCost(
-    stepsWithOutput.map((s) => s.output),
-    model
-  );
+
+  // Use actual cost if available; fall back to per-step estimates
+  const hasActualCost = totalCostUsd != null || stepsWithCost.length > 0;
+  const runningCost = stepsWithCost.reduce((sum, s) => sum + (s.costUsd ?? 0), 0);
   const shareUrl = `${window.location.origin}/run/${runId}`;
 
   return (
@@ -77,7 +80,7 @@ export function Sidebar({
       <section className="sidebar-section">
         <h4>Run info</h4>
         <dl className="info-grid">
-          <dt>Model</dt>   <dd>{modelLabel}</dd>
+          <dt>Model</dt>   <dd>{modelName}</dd>
           <dt>Steps</dt>   <dd>{pipeline.steps.length}</dd>
           <dt>Status</dt>
           <dd className={`info-status ${status}`}>
@@ -87,33 +90,85 @@ export function Sidebar({
         </dl>
       </section>
 
-      {/* ── Cost estimate ────────────────────────── */}
-      {stepsWithOutput.length > 0 && (
+      {/* ── Cost ─────────────────────────────────── */}
+      {(hasActualCost || stepsWithOutput.length > 0) && (
         <section className="sidebar-section">
-          <h4>Cost estimate</h4>
-          <table className="cost-table">
-            <tbody>
-              {stepsWithOutput.map((step, i) => (
-                <tr key={step.stepId}>
-                  <td className="cost-step">Step {i + 1}</td>
-                  <td className="cost-tokens">~{stepTokens(step.output).toLocaleString()} tok</td>
-                  <td className="cost-usd">{formatUsd(stepCost(step.output, model))}</td>
-                  {step.startedAt && step.finishedAt && (
-                    <td className="cost-dur">{formatDuration(step.finishedAt - step.startedAt)}</td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td className="cost-step cost-total">Total</td>
-                <td className="cost-tokens cost-total">~{totalTokens.toLocaleString()} tok</td>
-                <td className="cost-usd cost-total">{formatUsd(totalUsd)}</td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-          <p className="sidebar-note">Output tokens only · input not counted</p>
+          <h4>{status === "complete" ? "Cost" : "Cost so far"}</h4>
+          {hasActualCost ? (
+            <>
+              <table className="cost-table">
+                <tbody>
+                  {steps.filter((s) => s.costUsd != null || s.tokens != null).map((step, i) => {
+                    const fallbackCost = step.tokens
+                      ? calcCostUsd(step.tokens.input, step.tokens.output, model)
+                      : 0;
+                    const cost = step.costUsd ?? fallbackCost;
+                    return (
+                      <tr key={step.stepId}>
+                        <td className="cost-step">Step {i + 1}</td>
+                        {step.tokens && (
+                          <td className="cost-tokens">
+                            {step.tokens.input.toLocaleString()} / {step.tokens.output.toLocaleString()} tok
+                          </td>
+                        )}
+                        <td className="cost-usd">{formatUsd(cost)}</td>
+                        {step.startedAt && step.finishedAt && (
+                          <td className="cost-dur">{formatDuration(step.finishedAt - step.startedAt)}</td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td className="cost-step cost-total">Total</td>
+                    <td className="cost-tokens cost-total" />
+                    <td className="cost-usd cost-total">
+                      {formatUsd(totalCostUsd ?? runningCost)}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+              <p className="sidebar-note">Actual usage from OpenRouter</p>
+            </>
+          ) : (
+            <>
+              <table className="cost-table">
+                <tbody>
+                  {stepsWithOutput.map((step, i) => {
+                    const outTok = Math.ceil(step.output.length / 4);
+                    const inTok = Math.ceil(outTok / 1.5);
+                    return (
+                      <tr key={step.stepId}>
+                        <td className="cost-step">Step {i + 1}</td>
+                        <td className="cost-tokens">~{(inTok + outTok).toLocaleString()} tok</td>
+                        <td className="cost-usd">{formatUsd(calcCostUsd(inTok, outTok, model))}</td>
+                        {step.startedAt && step.finishedAt && (
+                          <td className="cost-dur">{formatDuration(step.finishedAt - step.startedAt)}</td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td className="cost-step cost-total">Total</td>
+                    <td className="cost-tokens cost-total" />
+                    <td className="cost-usd cost-total">
+                      {formatUsd(stepsWithOutput.reduce((sum, s) => {
+                        const outTok = Math.ceil(s.output.length / 4);
+                        const inTok = Math.ceil(outTok / 1.5);
+                        return sum + calcCostUsd(inTok, outTok, model);
+                      }, 0))}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+              <p className="sidebar-note">Estimated · no usage data from model</p>
+            </>
+          )}
         </section>
       )}
 

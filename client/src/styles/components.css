@@ -558,6 +558,38 @@
 
 .model-selector select:disabled { opacity: 0.38; cursor: not-allowed; }
 
+/* ─────────────────────────────────────────────────────────────
+   Pre-run cost estimate (PipelineReview)
+───────────────────────────────────────────────────────────── */
+.pre-run-estimate {
+  margin-top: var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface-secondary, #1a1a1a);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.estimate-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-label);
+  margin-bottom: var(--space-2);
+}
+
+.estimate-table td { padding: 3px 0; vertical-align: middle; }
+
+.est-step   { color: var(--color-text-secondary); width: 38%; }
+.est-tokens { text-align: right; width: 42%; color: var(--color-text-tertiary); font-size: 11px; }
+.est-usd    { text-align: right; width: 20%; font-variant-numeric: tabular-nums; }
+
+.est-total  { font-weight: 600; color: var(--color-text-primary); border-top: 1px solid var(--color-border); padding-top: var(--space-1); }
+
+.estimate-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
 .review-actions {
   display: flex;
   gap: var(--space-3);

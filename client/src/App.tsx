@@ -77,7 +77,7 @@ interface RunScreenProps {
 
 function RunScreen({ runId, initialSteps, pipeline, model, startedAt, onRerun }: RunScreenProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { steps, status, finalOutput, error, finishedAt } = useRunStream(runId, initialSteps);
+  const { steps, status, finalOutput, error, finishedAt, totalCostUsd } = useRunStream(runId, initialSteps);
 
   useEffect(() => {
     if (status === "complete") setSidebarOpen(true);
@@ -104,6 +104,7 @@ function RunScreen({ runId, initialSteps, pipeline, model, startedAt, onRerun }:
           model={model}
           startedAt={startedAt}
           finishedAt={finishedAt}
+          totalCostUsd={totalCostUsd}
           onRerun={onRerun}
           onClose={() => setSidebarOpen(false)}
         />
