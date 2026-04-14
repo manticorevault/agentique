@@ -156,7 +156,7 @@ The server uses a hybrid **replay + live** pattern so clients that connect after
 flowchart LR
     subgraph Server
         EM[EventEmitter\nper run]
-        EV[events[]\naccumulated history]
+        EV["events[] — accumulated history"]
         EM -->|push| EV
     end
 
