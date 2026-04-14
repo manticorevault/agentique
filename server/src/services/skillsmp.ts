@@ -30,48 +30,58 @@ interface SkillsmpSearchResponse {
   };
 }
 
+function noMatch(stepId: string): SkillMatch {
+  return {
+    stepId,
+    skillId: "no-match",
+    skillName: "Generic task execution",
+    skillDescription: "No specific skill found — execute the step directly.",
+    repoUrl: "",
+    confidence: 0,
+  };
+}
+
+async function fetchSkillMatch(query: string): Promise<SkillsmpResultItem | null> {
+  const url = `${SKILLSMP_BASE}/skills/ai-search?q=${encodeURIComponent(query)}`;
+  const headers = {
+    Authorization: `Bearer ${env.SKILLSMP_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      const data = (await res.json()) as SkillsmpSearchResponse;
+      return data.data?.data?.[0] ?? null;
+    }
+    // On first 5xx, wait briefly and retry once; on 4xx or second failure, give up
+    if (res.status < 500 || attempt === 1) {
+      console.warn(`SkillsMP ${res.status} for query "${query}" — using no-match fallback`);
+      return null;
+    }
+    await new Promise((r) => setTimeout(r, 600));
+  }
+  return null;
+}
+
 async function searchSkill(step: WorkflowStep): Promise<SkillMatch> {
   // Use only the step name — SkillsMP 500s on long or description-heavy queries.
-  // The step name is the most signal-dense, keyword-friendly part.
-  const rawQuery = step.name.trim().slice(0, 100);
-  const url = `${SKILLSMP_BASE}/skills/ai-search?q=${encodeURIComponent(rawQuery)}`;
-
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${env.SKILLSMP_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(
-      `SkillsMP ${res.status} on GET ${url} (step "${step.name}"): ${body}`
-    );
-  }
-
-  const data = (await res.json()) as SkillsmpSearchResponse;
-  const top = data.data?.data?.[0];
-
-  if (!top) {
+  const query = step.name.trim().slice(0, 100);
+  try {
+    const top = await fetchSkillMatch(query);
+    if (!top) return noMatch(step.id);
     return {
       stepId: step.id,
-      skillId: "no-match",
-      skillName: "Generic task execution",
-      skillDescription: "No specific skill found — execute the step directly.",
-      repoUrl: "",
-      confidence: 0,
+      skillId: top.skill.id,
+      skillName: top.skill.name,
+      skillDescription: top.skill.description,
+      repoUrl: top.skill.githubUrl,
+      confidence: top.score,
     };
+  } catch (err) {
+    console.warn(`SkillsMP lookup failed for step "${step.name}":`, err);
+    return noMatch(step.id);
   }
-
-  return {
-    stepId: step.id,
-    skillId: top.skill.id,
-    skillName: top.skill.name,
-    skillDescription: top.skill.description,
-    repoUrl: top.skill.githubUrl,
-    confidence: top.score,
-  };
 }
 
 export async function matchSkills(steps: WorkflowStep[]): Promise<SkillMatch[]> {
