@@ -1,4 +1,7 @@
 import { randomUUID } from "crypto";
+import { writeFile, mkdir } from "fs/promises";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 import { env } from "../env.js";
 import { decomposeWorkflow } from "./openrouter.js";
 import { matchSkills } from "./skillsmp.js";
@@ -6,6 +9,9 @@ import { createRun, getRunState } from "../store/runs.js";
 import { startRun } from "./runner.js";
 import { DEFAULT_MODEL } from "@skillrunner/shared";
 import type { Pipeline, RunEvent } from "@skillrunner/shared";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ARTIFACTS_DIR = resolve(__dirname, "../../../../.artifacts");
 
 // ─── Telegram API helpers ─────────────────────────────────────────────────────
 
@@ -101,9 +107,43 @@ function formatCost(usd?: number): string {
   return ` · $${usd.toFixed(4)}`;
 }
 
-function truncate(text: string, max = 3000): string {
-  if (text.length <= max) return text;
-  return text.slice(0, max) + "\n\n<i>…output truncated</i>";
+// Telegram hard limit for text messages
+const TG_MAX_CHARS = 4096;
+
+/**
+ * Send the artifact as a Telegram message if it fits within the character limit.
+ * If it's too long, save it as a .txt file and send the file as a document instead.
+ */
+async function sendArtifact(chatId: number, output: string, runId: string): Promise<void> {
+  if (output.length <= TG_MAX_CHARS) {
+    await sendMessage(chatId, output);
+    return;
+  }
+
+  // Save to file
+  await mkdir(ARTIFACTS_DIR, { recursive: true });
+  const filename = `agentique-output-${runId.slice(0, 8)}.txt`;
+  const filePath = resolve(ARTIFACTS_DIR, filename);
+  await writeFile(filePath, output, "utf8");
+
+  // Send the file as a Telegram document
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("caption", `📄 Output too long for a message (${output.length.toLocaleString()} chars) — sending as file.`);
+  form.append(
+    "document",
+    new Blob([output], { type: "text/plain" }),
+    filename
+  );
+
+  const res = await fetch(`${BASE()}/sendDocument`, { method: "POST", body: form });
+  if (!res.ok) {
+    // File send failed — fall back to showing the local path
+    await sendMessage(
+      chatId,
+      `📄 Output saved to file (${output.length.toLocaleString()} chars):\n<code>${filePath}</code>`
+    );
+  }
 }
 
 // ─── Run progress via EventEmitter ───────────────────────────────────────────
@@ -146,14 +186,19 @@ function attachRunListener(chatId: number, runId: string, stepCount: number) {
       }
       case "run_finish": {
         const webUrl = `${env.PUBLIC_URL}/run/${runId}`;
-        const output = truncate(event.finalOutput || "(no output)");
         const totalCost = event.totalCostUsd
-          ? `\n💰 Total cost: $${event.totalCostUsd.toFixed(4)}`
+          ? `💰 Total cost: $${event.totalCostUsd.toFixed(4)}\n`
           : "";
-        void sendMessage(
-          chatId,
-          `🎉 <b>Pipeline complete!</b>${totalCost}\n\n${output}\n\n🔗 <a href="${webUrl}">View full results on web</a>`
-        );
+        const output = event.finalOutput?.trim() || "(no output)";
+
+        void (async () => {
+          await sendMessage(
+            chatId,
+            `🎉 <b>Pipeline complete!</b>\n${totalCost}🔗 <a href="${webUrl}">View on web</a>`
+          );
+          await sendArtifact(chatId, output, runId);
+        })();
+
         setState(chatId, { phase: "idle" });
         break;
       }
