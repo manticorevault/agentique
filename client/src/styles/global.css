@@ -101,7 +101,7 @@
 
     /* Brand */
     --color-accent: hsl(213, 94%, 56%);
-    --color-accent-hover: hsl(213, 94%, 63%);
+    --color-accent-hover: hsl(213, 94%, 23%);
     --color-accent-subtle: hsla(213, 94%, 56%, 0.14);
 
     /* Semantic */
