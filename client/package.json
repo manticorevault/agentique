@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@lucide/lab": "^0.1.2",
     "@skillrunner/shared": "*",
+    "lucide-react": "^1.8.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

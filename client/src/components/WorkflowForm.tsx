@@ -21,7 +21,7 @@ export function WorkflowForm({ onSubmit, onSelectSkill, onBrowseAllSkills, loadi
   return (
     <div className="workflow-form-page">
       <form className="workflow-form" onSubmit={handleSubmit}>
-        <h1>SkillRunner</h1>
+        <h1>agentique</h1>
         <p className="subtitle">Describe a workflow in plain English and we'll build it.</p>
         <textarea
           className="workflow-input"

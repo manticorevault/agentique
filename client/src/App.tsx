@@ -15,6 +15,7 @@ import { decomposeWorkflow, confirmPipeline, fetchInputSchema } from "./api/clie
 import { DEFAULT_MODEL } from "@skillrunner/shared";
 import type { Pipeline, StepRun, Agent, SkillSearchResult, StepInputSchema } from "@skillrunner/shared";
 import { WorkflowInputModal } from "./components/WorkflowInputModal.js";
+import { UnicornHeadIcon } from "./components/UnicornHeadIcon.js";
 import { randomUUID } from "./utils/uuid.js";
 
 type Phase = "form" | "review" | "running" | "replay" | "agents" | "agent-builder" | "skills" | "artifacts";
@@ -39,7 +40,8 @@ function AppNav({
         className={`nav-logo ${top === "form" ? "nav-active" : ""}`}
         onClick={() => onNav("form")}
       >
-        SkillRunner
+        <UnicornHeadIcon size={18} />
+        agentique
       </button>
       <div className="nav-links">
         <button

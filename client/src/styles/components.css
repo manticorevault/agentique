@@ -56,6 +56,9 @@
   letter-spacing: -0.02em;
   color: var(--color-text-primary);
   transition: color 0.2s var(--ease-std);
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .nav-logo:hover,
