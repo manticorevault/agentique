@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HistoryEntry } from "@skillrunner/shared";
-import { SUPPORTED_MODELS } from "@skillrunner/shared";
+import { modelLabel } from "../utils/modelLabel.js";
 import { formatDuration } from "../utils/cost.js";
 
 function formatDate(ts: number): string {
@@ -41,7 +41,7 @@ function CopyButton({ text }: { text: string }) {
 
 function ArtifactCard({ run, onReplay }: { run: HistoryEntry; onReplay: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const modelLabel = SUPPORTED_MODELS.find((m) => m.id === run.model)?.label ?? run.model;
+  const label = modelLabel(run.model);
   const duration =
     run.finishedAt != null ? formatDuration(run.finishedAt - run.startedAt) : null;
   const stepsWithOutput = run.steps.filter((s) => s.output.trim());
@@ -57,7 +57,7 @@ function ArtifactCard({ run, onReplay }: { run: HistoryEntry; onReplay: (id: str
         </div>
         <div className="artifact-card-meta">
           <span>{formatDate(run.startedAt)}</span>
-          <span>{modelLabel}</span>
+          <span>{label}</span>
           <span>{run.pipeline.steps.length} steps</span>
           {duration && <span>{duration}</span>}
         </div>

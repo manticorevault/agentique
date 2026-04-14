@@ -11,9 +11,11 @@ import { SkillBrowser } from "./components/SkillBrowser.js";
 import { ArtifactsPage } from "./components/ArtifactsPage.js";
 import { useRunStream } from "./hooks/useRunStream.js";
 import { useModels } from "./hooks/useModels.js";
-import { decomposeWorkflow, confirmPipeline } from "./api/client.js";
+import { decomposeWorkflow, confirmPipeline, fetchInputSchema } from "./api/client.js";
 import { DEFAULT_MODEL } from "@skillrunner/shared";
-import type { Pipeline, StepRun, Agent } from "@skillrunner/shared";
+import type { Pipeline, StepRun, Agent, SkillSearchResult, StepInputSchema } from "@skillrunner/shared";
+import { WorkflowInputModal } from "./components/WorkflowInputModal.js";
+import { randomUUID } from "./utils/uuid.js";
 
 type Phase = "form" | "review" | "running" | "replay" | "agents" | "agent-builder" | "skills" | "artifacts";
 
@@ -138,6 +140,10 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultModel]);
 
+  // Input schema modal state
+  const [inputSchemas, setInputSchemas] = useState<StepInputSchema[]>([]);
+  const [showInputModal, setShowInputModal] = useState(false);
+
   // Agent-launched run carries a synthetic Pipeline for the sidebar
   const [agentPipeline, setAgentPipeline] = useState<Pipeline | null>(null);
 
@@ -174,11 +180,30 @@ export function App() {
     finally { setLoading(false); }
   }
 
+  // Phase 1: fetch input schemas; show modal if any step needs inputs
   async function handleConfirm() {
     if (!pipeline) return;
     setLoading(true); setError("");
     try {
-      const { runId } = await confirmPipeline({ pipeline, model: selectedModel });
+      const { schemas } = await fetchInputSchema(pipeline);
+      if (schemas.length > 0) {
+        setInputSchemas(schemas);
+        setShowInputModal(true);
+      } else {
+        await doStartRun({});
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  }
+
+  // Phase 2: actually kick off the run with (possibly empty) input values
+  async function doStartRun(inputs: Record<string, Record<string, string>>) {
+    if (!pipeline) return;
+    setLoading(true); setError("");
+    try {
+      const { runId } = await confirmPipeline({ pipeline, model: selectedModel, inputs });
+      setShowInputModal(false);
+      setInputSchemas([]);
       setRunId(runId); setStartedAt(Date.now());
       setAgentPipeline(pipeline);
       setInitialSteps(pipeline.steps.map((s) => ({
@@ -187,6 +212,31 @@ export function App() {
       setPhase("running");
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
+  }
+
+  // ── Skill-first entry point ────────────────────────────────────────────────
+  function handleSelectSkill(skill: SkillSearchResult) {
+    const stepId = randomUUID();
+    const synth: Pipeline = {
+      id: randomUUID(),
+      description: skill.name,
+      steps: [{
+        id: stepId,
+        name: skill.name,
+        description: skill.description,
+        order: 0,
+      }],
+      matches: [{
+        stepId,
+        skillId: skill.id,
+        skillName: skill.name,
+        skillDescription: skill.description,
+        repoUrl: skill.githubUrl,
+        confidence: skill.score,
+      }],
+    };
+    setPipeline(synth);
+    setPhase("review");
   }
 
   // ── Agent run handler ──────────────────────────────────────────────────────
@@ -228,7 +278,12 @@ export function App() {
       {/* ── Workflow form ──── */}
       {phase === "form" && (
         <>
-          <WorkflowForm onSubmit={handleDecompose} loading={loading} />
+          <WorkflowForm
+            onSubmit={handleDecompose}
+            onSelectSkill={handleSelectSkill}
+            onBrowseAllSkills={() => navigate("skills")}
+            loading={loading}
+          />
           <div className="form-footer">
             <button className="btn-secondary btn-history" onClick={() => setShowHistory((v) => !v)}>
               {showHistory ? "Hide history" : "Recent runs"}
@@ -240,14 +295,24 @@ export function App() {
 
       {/* ── Pipeline review ─── */}
       {phase === "review" && pipeline && (
-        <PipelineReview
-          pipeline={pipeline}
-          selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
-          onConfirm={() => void handleConfirm()}
-          onBack={() => setPhase("form")}
-          loading={loading}
-        />
+        <>
+          <PipelineReview
+            pipeline={pipeline}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            onConfirm={() => void handleConfirm()}
+            onBack={() => setPhase("form")}
+            loading={loading}
+          />
+          {showInputModal && inputSchemas.length > 0 && (
+            <WorkflowInputModal
+              schemas={inputSchemas}
+              onSubmit={(inputs) => void doStartRun(inputs)}
+              onCancel={() => { setShowInputModal(false); setInputSchemas([]); }}
+              loading={loading}
+            />
+          )}
+        </>
       )}
 
       {/* ── Live run ────────── */}

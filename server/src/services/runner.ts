@@ -8,46 +8,7 @@ import {
 import { saveRun } from "../store/db.js";
 import { DEFAULT_MODEL, toOpencodeModelId } from "@skillrunner/shared";
 import type { WorkflowStep, SkillMatch } from "@skillrunner/shared";
-
-// ─── Skill content fetching ───────────────────────────────────────────────────
-
-const skillContentCache = new Map<string, { content: string; cachedAt: number }>();
-const SKILL_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-
-/**
- * Fetch the raw SKILL.md for a skill from its GitHub repo URL.
- * Tries `main` then `master` branch. Returns empty string on failure so the
- * pipeline degrades gracefully rather than aborting.
- */
-async function fetchSkillMd(repoUrl: string): Promise<string> {
-  if (!repoUrl) return "";
-
-  const cached = skillContentCache.get(repoUrl);
-  if (cached && Date.now() - cached.cachedAt < SKILL_CACHE_TTL) {
-    return cached.content;
-  }
-
-  const match = repoUrl.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
-  if (!match) return "";
-
-  const [, owner, repo] = match;
-
-  for (const branch of ["main", "master"]) {
-    const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/SKILL.md`;
-    try {
-      const res = await fetch(rawUrl);
-      if (res.ok) {
-        const content = await res.text();
-        skillContentCache.set(repoUrl, { content, cachedAt: Date.now() });
-        return content;
-      }
-    } catch {
-      // network error — try next branch
-    }
-  }
-
-  return "";
-}
+import { fetchSkillMd } from "./skillContent.js";
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
@@ -56,7 +17,8 @@ function buildStepPrompt(
   match: SkillMatch,
   skillContent: string,
   prevOutput: string,
-  totalSteps: number
+  totalSteps: number,
+  userInputs?: Record<string, string>
 ): string {
   let skillSection: string;
 
@@ -67,7 +29,6 @@ function buildStepPrompt(
       `Skill: ${match.skillName}\n` +
       `\n--- SKILL.md ---\n${skillContent.trim()}\n--- END SKILL.md ---`;
   } else {
-    // SKILL.md unavailable — fall back to the description we have
     skillSection =
       `Skill: ${match.skillName} — ${match.skillDescription}` +
       (match.repoUrl ? ` (source: ${match.repoUrl})` : "") + ".";
@@ -78,12 +39,22 @@ function buildStepPrompt(
       ? `\nInput from previous step:\n${prevOutput.trim()}`
       : "\nThis is the first step — no prior input.";
 
+  // Inject user-provided field values when present
+  const userInputSection =
+    userInputs && Object.keys(userInputs).length > 0
+      ? `\nUser-provided inputs:\n` +
+        Object.entries(userInputs)
+          .map(([label, value]) => `- ${label}: ${value}`)
+          .join("\n")
+      : "";
+
   return (
     `You are an autonomous pipeline agent executing step ${step.order + 1} of ${totalSteps}.\n` +
     `Step name: ${step.name}\n` +
     `Step description: ${step.description}\n` +
     `${skillSection}` +
     inputSection +
+    userInputSection +
     `\n\n` +
     `Available tools: bash, read, glob, grep, edit, write, webfetch, task, skill\n` +
     `When the task requires live data from a URL, use the webfetch tool to retrieve it — ` +
@@ -205,7 +176,8 @@ export async function startRun(runId: string): Promise<void> {
     });
 
     const skillContent = await fetchSkillMd(match.repoUrl);
-    const prompt = buildStepPrompt(step, match, skillContent, prevOutput, pipeline.steps.length);
+    const userInputs = state.stepInputs?.[step.id];
+    const prompt = buildStepPrompt(step, match, skillContent, prevOutput, pipeline.steps.length, userInputs);
 
     let output: string;
     try {

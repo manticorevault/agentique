@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HistoryEntry } from "@skillrunner/shared";
-import { SUPPORTED_MODELS } from "@skillrunner/shared";
+import { modelLabel } from "../utils/modelLabel.js";
 import { formatDuration } from "../utils/cost.js";
 
 interface Props {
@@ -46,7 +46,7 @@ export function HistoryPanel({ onOpen, onClose }: Props) {
 
       <ul className="history-list">
         {runs.map((run) => {
-          const modelLabel = SUPPORTED_MODELS.find((m) => m.id === run.model)?.label ?? run.model;
+          const runModelLabel = modelLabel(run.model);
           const duration =
             run.finishedAt != null
               ? formatDuration(run.finishedAt - run.startedAt)
@@ -69,7 +69,7 @@ export function HistoryPanel({ onOpen, onClose }: Props) {
               </div>
               <div className="history-row-meta">
                 <span>{formatDate(run.startedAt)}</span>
-                <span>{modelLabel}</span>
+                <span>{runModelLabel}</span>
                 <span>{run.pipeline.steps.length} steps</span>
                 {duration && <span>{duration}</span>}
               </div>

@@ -134,6 +134,22 @@ export function toOpencodeModelId(openrouterId: string): string {
   return `openrouter/${openrouterId}`;
 }
 
+// ─── Skill input fields ───────────────────────────────────────────────────────
+
+export interface InputField {
+  id: string;
+  label: string;
+  type: "text" | "textarea" | "url" | "number";
+  placeholder?: string;
+  required: boolean;
+}
+
+export interface StepInputSchema {
+  stepId: string;
+  stepName: string;
+  fields: InputField[];
+}
+
 // ─── API Request/Response shapes ─────────────────────────────────────────────
 
 export interface DecomposeRequest {
@@ -147,10 +163,21 @@ export interface DecomposeResponse {
 export interface ConfirmPipelineRequest {
   pipeline: Pipeline;
   model?: string;
+  /** stepId → { fieldLabel → value } collected from the pre-run input form */
+  inputs?: Record<string, Record<string, string>>;
 }
 
 export interface ConfirmPipelineResponse {
   runId: string;
+}
+
+export interface PipelineInputSchemaRequest {
+  pipeline: Pipeline;
+}
+
+export interface PipelineInputSchemaResponse {
+  /** Only steps that have at least one detectable input field are included. */
+  schemas: StepInputSchema[];
 }
 
 // ─── Skill Browser ───────────────────────────────────────────────────────────
@@ -184,6 +211,8 @@ export interface AgentStep {
   order: number;
   /** Optional per-step model override. Falls back to agent-level model if absent. */
   model?: string;
+  /** Input fields the user must fill in before running this step. */
+  inputSchema?: InputField[];
 }
 
 export interface Agent {

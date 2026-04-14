@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Pipeline, StepRun, RunStatus } from "@skillrunner/shared";
-import { SUPPORTED_MODELS } from "@skillrunner/shared";
+import { modelLabel } from "../utils/modelLabel.js";
 import { estimateCost, formatUsd, formatDuration, stepTokens, stepCost } from "../utils/cost.js";
 
 interface Props {
@@ -57,7 +57,7 @@ export function Sidebar({
   onRerun,
   onClose,
 }: Props) {
-  const modelLabel = SUPPORTED_MODELS.find((m) => m.id === model)?.label ?? model;
+  const modelLabel = modelLabel(model);
   const duration = finishedAt != null ? formatDuration(finishedAt - startedAt) : null;
   const stepsWithOutput = steps.filter((s) => s.output.trim());
   const { tokens: totalTokens, usd: totalUsd } = estimateCost(

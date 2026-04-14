@@ -3,6 +3,9 @@ import type {
   DecomposeResponse,
   ConfirmPipelineRequest,
   ConfirmPipelineResponse,
+  PipelineInputSchemaRequest,
+  PipelineInputSchemaResponse,
+  Pipeline,
 } from "@skillrunner/shared";
 
 async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
@@ -24,6 +27,13 @@ export function decomposeWorkflow(description: string): Promise<DecomposeRespons
   return post<DecomposeRequest, DecomposeResponse>("/api/workflow/decompose", {
     description,
   });
+}
+
+export function fetchInputSchema(pipeline: Pipeline): Promise<PipelineInputSchemaResponse> {
+  return post<PipelineInputSchemaRequest, PipelineInputSchemaResponse>(
+    "/api/pipeline/input-schema",
+    { pipeline }
+  );
 }
 
 export function confirmPipeline(

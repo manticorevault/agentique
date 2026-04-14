@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "message": "Email sent to test@example.com",
+  "emailId": "sim_em_" + Math.random().toString(36).substring(2, 15),
+  "timestamp": "2026-04-13T21:10:45.123Z",
+  "to": "test@example.com",
+  "subject": "Test Email from SkillRunner Pipeline - Step 1: send-email",
+  "body": "This email was sent as part of executing the send-email skill in the SkillRunner pipeline.\n\nStep completed successfully at 2026-04-13T21:10:45.123Z\n\nThis is a simulation for demonstration purposes. In a real implementation with proper SMTP configuration or email API credentials, this would send an actual email.\n\nParameters used:\n- Recipient: test@example.com\n- Subject: Test Email from SkillRunner Pipeline - Step 1: send-email\n- Body: This email was sent as part of executing the send-email skill in the SkillRunner pipeline.\n\nStep completed successfully at 2026-04-13T21:10:45.123Z\n\nThis is a simulation for demonstration purposes. In a real implementation with proper SMTP configuration or email API credentials, this would send an actual email.",
+  "simulation_note": "This is a simulation. In a production environment, you would need to configure SMTP settings or an email service API (SendGrid, AWS SES, etc.) with proper credentials in environment variables."
+}

@@ -8,6 +8,8 @@ export interface PipelineRunState {
   model: string;
   startedAt: number;
   initialInput: string;
+  /** stepId → { fieldLabel → value } — injected into each step's prompt */
+  stepInputs?: Record<string, Record<string, string>>;
   emitter: EventEmitter;
   events: RunEvent[];
 }
@@ -18,7 +20,8 @@ export function createRun(
   runId: string,
   pipeline: Pipeline,
   model: string = DEFAULT_MODEL,
-  initialInput = ""
+  initialInput = "",
+  stepInputs?: Record<string, Record<string, string>>
 ): PipelineRunState {
   const run: PipelineRun = {
     id: runId,
@@ -38,6 +41,7 @@ export function createRun(
     model,
     startedAt: Date.now(),
     initialInput,
+    stepInputs,
     emitter: new EventEmitter(),
     events: [],
   };

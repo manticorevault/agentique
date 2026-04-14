@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Agent } from "@skillrunner/shared";
-import { SUPPORTED_MODELS } from "@skillrunner/shared";
+import { modelLabel } from "../utils/modelLabel.js";
 import { listAgents, deleteAgent, runAgent } from "../api/agents.js";
 import { useFadeInList } from "../hooks/useFadeInList.js";
 
@@ -26,7 +26,7 @@ function RunModal({
         <h3>Run "{agent.name}"</h3>
         <p className="modal-meta">
           {agent.steps.length} steps ·{" "}
-          {SUPPORTED_MODELS.find((m) => m.id === agent.model)?.label ?? agent.model}
+          {modelLabel(agent.model)}
         </p>
         <label className="modal-label">Initial input <span>(optional)</span></label>
         <textarea
@@ -106,7 +106,7 @@ export function AgentList({ onEdit, onRunStarted, onNew }: Props) {
 
       <ul className="agent-cards" ref={listRef}>
         {agents.map((agent) => {
-          const modelLabel = SUPPORTED_MODELS.find((m) => m.id === agent.model)?.label ?? agent.model;
+          const agentModelLabel = modelLabel(agent.model);
           return (
             <li key={agent.id} className="agent-card">
               <div className="agent-card-body">
@@ -116,7 +116,7 @@ export function AgentList({ onEdit, onRunStarted, onNew }: Props) {
                 )}
                 <div className="agent-card-meta">
                   <span>{agent.steps.length} step{agent.steps.length !== 1 ? "s" : ""}</span>
-                  <span>{modelLabel}</span>
+                  <span>{agentModelLabel}</span>
                 </div>
                 <ol className="agent-card-steps">
                   {agent.steps.map((s) => (
