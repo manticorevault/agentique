@@ -16,6 +16,7 @@ import { DEFAULT_MODEL } from "@skillrunner/shared";
 import type { Pipeline, StepRun, Agent, SkillSearchResult, StepInputSchema } from "@skillrunner/shared";
 import { WorkflowInputModal } from "./components/WorkflowInputModal.js";
 import { UnicornHeadIcon } from "./components/UnicornHeadIcon.js";
+import { Sparkles, Bot, Cpu, Archive } from "lucide-react";
 import { randomUUID } from "./utils/uuid.js";
 
 type Phase = "form" | "review" | "running" | "replay" | "agents" | "agent-builder" | "skills" | "artifacts";
@@ -37,30 +38,42 @@ function AppNav({
   return (
     <nav className="app-nav">
       <button
-        className={`nav-logo ${top === "form" ? "nav-active" : ""}`}
+        className={`agentique-logo ${top === "form" ? "nav-active" : ""}`}
         onClick={() => onNav("form")}
       >
-        <UnicornHeadIcon size={18} />
-        agentique
+        <div className="agentique-logo-icon">
+          <UnicornHeadIcon size={18} />
+        </div>
+        <span className="agentique-logo-text">agentique</span>
       </button>
       <div className="nav-links">
+        <button
+          className={top === "form" ? "nav-active" : ""}
+          onClick={() => onNav("form")}
+        >
+          <Sparkles size={14} />
+          Create
+        </button>
         <button
           className={top === "agents" ? "nav-active" : ""}
           onClick={() => onNav("agents")}
         >
+          <Bot size={14} />
           Agents
-        </button>
-        <button
-          className={top === "artifacts" ? "nav-active" : ""}
-          onClick={() => onNav("artifacts")}
-        >
-          Artifacts
         </button>
         <button
           className={top === "skills" ? "nav-active" : ""}
           onClick={() => onNav("skills")}
         >
-          Browse Skills
+          <Cpu size={14} />
+          Skills
+        </button>
+        <button
+          className={top === "artifacts" ? "nav-active" : ""}
+          onClick={() => onNav("artifacts")}
+        >
+          <Archive size={14} />
+          Artifacts
         </button>
       </div>
     </nav>

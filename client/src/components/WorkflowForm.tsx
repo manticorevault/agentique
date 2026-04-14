@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Sparkles } from "lucide-react";
 import type { SkillSearchResult } from "@skillrunner/shared";
 import { FeaturedSkills } from "./FeaturedSkills.js";
 
@@ -20,19 +21,34 @@ export function WorkflowForm({ onSubmit, onSelectSkill, onBrowseAllSkills, loadi
 
   return (
     <div className="workflow-form-page">
+      <div className="workflow-hero">
+        <div className="hero-badge">
+          <Sparkles size={13} />
+          AI-powered workflow builder
+        </div>
+
+        <h1 className="hero-heading">
+          Compose workflows{" "}
+          <span className="gradient-text">from plain English.</span>
+        </h1>
+
+        <p className="hero-sub">
+          Describe what you need done. Agentique decomposes it into steps,
+          matches the right skills, and streams results in real time.
+        </p>
+      </div>
+
       <form className="workflow-form" onSubmit={handleSubmit}>
-        <h1>agentique</h1>
-        <p className="subtitle">Describe a workflow in plain English and we'll build it.</p>
         <textarea
           className="workflow-input"
-          rows={5}
-          placeholder="e.g. Scrape a URL, summarise the content, and write a short report"
+          rows={4}
+          placeholder="e.g. Research the latest AI papers, summarize the top 5, and create a newsletter draft…"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           disabled={loading}
         />
-        <button type="submit" disabled={loading || !value.trim()}>
-          {loading ? "Decomposing…" : "Build pipeline"}
+        <button type="submit" className="btn-build" disabled={loading || !value.trim()}>
+          {loading ? "Decomposing…" : "Build workflow →"}
         </button>
       </form>
 
