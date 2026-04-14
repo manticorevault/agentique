@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, readdir, stat, copyFile } from "fs/promises";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 import {
@@ -245,12 +245,40 @@ export async function startRun(runId: string): Promise<void> {
   persist(runId);
 
   // Save final output to .artifacts/ so it can be retrieved later (e.g. via Telegram)
-  if (prevOutput.trim()) {
-    const filename = `agentique-output-${runId.slice(0, 8)}.txt`;
-    void mkdir(ARTIFACTS_DIR, { recursive: true })
-      .then(() => writeFile(resolve(ARTIFACTS_DIR, filename), prevOutput, "utf8"))
-      .catch((err) => console.error("[runner] Failed to save artifact:", err));
-  }
+  void (async () => {
+    try {
+      await mkdir(ARTIFACTS_DIR, { recursive: true });
+
+      // Copy the last .md file written by OpenCode during this run (if any)
+      const cwd = process.cwd();
+      const files = await readdir(cwd);
+      const mdFiles = await Promise.all(
+        files
+          .filter((f) => f.endsWith(".md"))
+          .map(async (f) => {
+            const s = await stat(resolve(cwd, f));
+            return { name: f, mtime: s.mtime.getTime() };
+          })
+      );
+      const lastMd = mdFiles
+        .filter((f) => f.mtime >= state.startedAt)
+        .sort((a, b) => b.mtime - a.mtime)[0];
+
+      if (lastMd) {
+        const dest = resolve(ARTIFACTS_DIR, lastMd.name);
+        await copyFile(resolve(cwd, lastMd.name), dest);
+        console.log(`[runner] Copied ${lastMd.name} → .artifacts/`);
+      }
+
+      // Also save the final text output
+      if (prevOutput.trim()) {
+        const filename = `agentique-output-${runId.slice(0, 8)}.txt`;
+        await writeFile(resolve(ARTIFACTS_DIR, filename), prevOutput, "utf8");
+      }
+    } catch (err) {
+      console.error("[runner] Failed to save artifact:", err);
+    }
+  })();
 }
 
 function persist(runId: string): void {
