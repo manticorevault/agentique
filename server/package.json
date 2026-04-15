@@ -1,6 +1,7 @@
 {
   "name": "@skillrunner/server",
   "version": "0.0.1",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {

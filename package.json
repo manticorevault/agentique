@@ -1,6 +1,7 @@
 {
   "name": "skillrunner",
   "private": true,
+  "license": "MIT",
   "workspaces": ["packages/*", "server", "client"],
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
